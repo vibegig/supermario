@@ -1,0 +1,2673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Mario 3D - Three.js</title>
+    <style>
+        /* ============================================
+           CSS STYLES
+           ============================================ */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #5c94fc;
+            font-family: 'Press Start 2P', 'Courier New', monospace;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* HUD Styles */
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            color: white;
+            font-size: 16px;
+            text-shadow: 2px 2px 0 #000;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .hud-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .hud-label {
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .hud-value {
+            font-size: 18px;
+        }
+
+        /* Menu Overlay */
+        #menu-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+        }
+
+        #menu-overlay.hidden {
+            display: none;
+        }
+
+        .menu-title {
+            color: #e52521;
+            font-size: 48px;
+            text-shadow: 4px 4px 0 #000;
+            margin-bottom: 40px;
+        }
+
+        .menu-subtitle {
+            color: white;
+            font-size: 18px;
+            text-shadow: 2px 2px 0 #000;
+            margin-bottom: 20px;
+        }
+
+        .menu-button {
+            background: #e52521;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+            margin: 10px;
+            text-shadow: 2px 2px 0 #000;
+            box-shadow: 4px 4px 0 #000;
+            transition: transform 0.1s;
+        }
+
+        .menu-button:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 6px 6px 0 #000;
+        }
+
+        .menu-button:active {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0 #000;
+        }
+
+        .controls-info {
+            color: #fbd000;
+            font-size: 12px;
+            text-shadow: 1px 1px 0 #000;
+            margin-top: 30px;
+            text-align: center;
+            line-height: 2;
+        }
+
+        /* Game Over / Level Complete */
+        .game-message {
+            color: white;
+            font-size: 36px;
+            text-shadow: 3px 3px 0 #000;
+            margin-bottom: 20px;
+        }
+
+        .score-display {
+            color: #fbd000;
+            font-size: 24px;
+            text-shadow: 2px 2px 0 #000;
+            margin-bottom: 30px;
+        }
+
+        /* Loading Screen */
+        #loading-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 300;
+        }
+
+        #loading-screen.hidden {
+            display: none;
+        }
+
+        .loading-text {
+            color: white;
+            font-size: 24px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <!-- Loading Screen -->
+        <div id="loading-screen">
+            <div class="loading-text">LOADING...</div>
+        </div>
+
+        <!-- HUD -->
+        <div id="hud">
+            <div class="hud-item">
+                <span class="hud-label">MARIO</span>
+                <span class="hud-value" id="score-display">000000</span>
+            </div>
+            <div class="hud-item">
+                <span class="hud-label">COINS</span>
+                <span class="hud-value" id="coins-display">x00</span>
+            </div>
+            <div class="hud-item">
+                <span class="hud-label">WORLD</span>
+                <span class="hud-value">1-1</span>
+            </div>
+            <div class="hud-item">
+                <span class="hud-label">TIME</span>
+                <span class="hud-value" id="time-display">400</span>
+            </div>
+            <div class="hud-item">
+                <span class="hud-label">LIVES</span>
+                <span class="hud-value" id="lives-display">x3</span>
+            </div>
+        </div>
+
+        <!-- Menu Overlay -->
+        <div id="menu-overlay">
+            <div class="menu-title">SUPER MARIO 3D</div>
+            <div class="menu-subtitle">Three.js Edition</div>
+            <button class="menu-button" id="start-button">START GAME</button>
+            <div class="controls-info">
+                CONTROLS:<br>
+                Arrow Keys / WASD - Move<br>
+                Space - Jump<br>
+                Ctrl - Fire (when powered up)
+            </div>
+        </div>
+    </div>
+
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+/* ============================================
+   SUPER MARIO 3D - THREE.JS GAME
+   A complete 3D platformer game
+   ============================================ */
+
+// ============================================
+// GAME CONSTANTS
+// ============================================
+const GAME_CONFIG = {
+    // Physics
+    GRAVITY: -35,
+    JUMP_FORCE: 15,
+    MOVE_SPEED: 8,
+    MAX_FALL_SPEED: -25,
+    FRICTION: 0.85,
+    AIR_CONTROL: 0.3,
+
+    // Mario states
+    MARIO_SMALL_SCALE: 1,
+    MARIO_BIG_SCALE: 1.5,
+
+    // Enemy settings
+    GOOMBA_SPEED: 2,
+    KOOPA_SPEED: 2.5,
+    SHELL_SPEED: 12,
+
+    // Level settings
+    BLOCK_SIZE: 1,
+    LEVEL_WIDTH: 200,
+
+    // Game settings
+    INITIAL_LIVES: 3,
+    INITIAL_TIME: 400,
+    INVINCIBILITY_TIME: 2000,
+
+    // Camera
+    CAMERA_OFFSET_X: 8,
+    CAMERA_OFFSET_Y: 6,
+    CAMERA_OFFSET_Z: 15,
+
+    // Colors (Mario palette)
+    COLORS: {
+        SKY: 0x5c94fc,
+        GROUND: 0xc84c0c,
+        BRICK: 0xd07030,
+        QUESTION_BLOCK: 0xfab800,
+        PIPE_GREEN: 0x00a800,
+        MARIO_RED: 0xe52521,
+        MARIO_BLUE: 0x0000a8,
+        MARIO_SKIN: 0xffc0a0,
+        MARIO_BROWN: 0x6b3400,
+        GOOMBA_BROWN: 0xa04000,
+        KOOPA_GREEN: 0x00a800,
+        KOOPA_YELLOW: 0xffc000,
+        COIN_GOLD: 0xffd700,
+        MUSHROOM_RED: 0xff0000,
+        FIRE_FLOWER_RED: 0xff4500,
+        FIRE_FLOWER_YELLOW: 0xffff00
+    }
+};
+
+// ============================================
+// GAME STATE
+// ============================================
+const gameState = {
+    // Core state
+    currentState: 'menu', // 'menu', 'playing', 'paused', 'gameover', 'levelcomplete'
+    score: 0,
+    coinCount: 0,
+    lives: GAME_CONFIG.INITIAL_LIVES,
+    time: GAME_CONFIG.INITIAL_TIME,
+
+    // Mario state
+    marioState: 'small', // 'small', 'big', 'fire'
+    isInvincible: false,
+    invincibilityTimer: 0,
+
+    // Input state
+    keys: {
+        left: false,
+        right: false,
+        up: false,
+        down: false,
+        jump: false,
+        fire: false
+    },
+
+    // Game objects arrays
+    platforms: [],
+    questionBlocks: [],
+    brickBlocks: [],
+    coins: [],
+    enemies: [],
+    powerUps: [],
+    fireballs: [],
+    particles: [],
+
+    // Timing
+    lastTime: 0,
+    deltaTime: 0,
+    timeCounter: 0
+};
+
+// ============================================
+// THREE.JS CORE VARIABLES
+// ============================================
+let scene, camera, renderer;
+let mario, marioMixer;
+let clock;
+
+// ============================================
+// AUDIO SYSTEM
+// ============================================
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const sounds = {};
+
+// Create simple sound effects using Web Audio API
+function createSound(type) {
+    return () => {
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        const now = audioContext.currentTime;
+
+        switch(type) {
+            case 'jump':
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(200, now);
+                oscillator.frequency.exponentialRampToValueAtTime(600, now + 0.1);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+                break;
+
+            case 'coin':
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(988, now);
+                oscillator.frequency.setValueAtTime(1319, now + 0.05);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+                break;
+
+            case 'stomp':
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(400, now);
+                oscillator.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+                gainNode.gain.setValueAtTime(0.15, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+                break;
+
+            case 'powerup':
+                oscillator.type = 'square';
+                const freqs = [392, 523, 659, 784];
+                freqs.forEach((freq, i) => {
+                    oscillator.frequency.setValueAtTime(freq, now + i * 0.1);
+                });
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+                oscillator.start(now);
+                oscillator.stop(now + 0.4);
+                break;
+
+            case 'death':
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(494, now);
+                oscillator.frequency.setValueAtTime(466, now + 0.15);
+                oscillator.frequency.setValueAtTime(440, now + 0.3);
+                oscillator.frequency.setValueAtTime(415, now + 0.45);
+                oscillator.frequency.setValueAtTime(392, now + 0.6);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+                oscillator.start(now);
+                oscillator.stop(now + 0.8);
+                break;
+
+            case 'bump':
+                oscillator.type = 'triangle';
+                oscillator.frequency.setValueAtTime(100, now);
+                oscillator.frequency.exponentialRampToValueAtTime(50, now + 0.1);
+                gainNode.gain.setValueAtTime(0.2, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                oscillator.start(now);
+                oscillator.stop(now + 0.1);
+                break;
+
+            case 'fireball':
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(800, now);
+                oscillator.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+                gainNode.gain.setValueAtTime(0.08, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                oscillator.start(now);
+                oscillator.stop(now + 0.15);
+                break;
+
+            case 'levelcomplete':
+                oscillator.type = 'square';
+                const melody = [523, 659, 784, 659, 784, 1047];
+                melody.forEach((freq, i) => {
+                    oscillator.frequency.setValueAtTime(freq, now + i * 0.15);
+                });
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 1);
+                oscillator.start(now);
+                oscillator.stop(now + 1);
+                break;
+        }
+    };
+}
+
+// Initialize sounds
+function initSounds() {
+    sounds.jump = createSound('jump');
+    sounds.coin = createSound('coin');
+    sounds.stomp = createSound('stomp');
+    sounds.powerup = createSound('powerup');
+    sounds.death = createSound('death');
+    sounds.bump = createSound('bump');
+    sounds.fireball = createSound('fireball');
+    sounds.levelcomplete = createSound('levelcomplete');
+}
+
+// ============================================
+// THREE.JS INITIALIZATION
+// ============================================
+function initThreeJS() {
+    // Create scene
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(GAME_CONFIG.COLORS.SKY);
+    scene.fog = new THREE.Fog(GAME_CONFIG.COLORS.SKY, 30, 80);
+
+    // Create orthographic camera for 2.5D look
+    const aspect = window.innerWidth / window.innerHeight;
+    const frustumSize = 15;
+    camera = new THREE.OrthographicCamera(
+        frustumSize * aspect / -2,
+        frustumSize * aspect / 2,
+        frustumSize / 2,
+        frustumSize / -2,
+        0.1,
+        1000
+    );
+    camera.position.set(10, 5, 20);
+    camera.lookAt(10, 0, 0);
+
+    // Create renderer
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('game-container').appendChild(renderer.domElement);
+
+    // Initialize clock
+    clock = new THREE.Clock();
+
+    // Add lights
+    initLights();
+
+    // Handle window resize
+    window.addEventListener('resize', onWindowResize);
+}
+
+function initLights() {
+    // Ambient light
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+
+    // Directional light (sun)
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(50, 100, 50);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.camera.near = 0.5;
+    directionalLight.shadow.camera.far = 500;
+    directionalLight.shadow.camera.left = -50;
+    directionalLight.shadow.camera.right = 50;
+    directionalLight.shadow.camera.top = 50;
+    directionalLight.shadow.camera.bottom = -50;
+    scene.add(directionalLight);
+
+    // Hemisphere light for better ambient
+    const hemiLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.3);
+    scene.add(hemiLight);
+}
+
+function onWindowResize() {
+    const aspect = window.innerWidth / window.innerHeight;
+    const frustumSize = 15;
+
+    camera.left = frustumSize * aspect / -2;
+    camera.right = frustumSize * aspect / 2;
+    camera.top = frustumSize / 2;
+    camera.bottom = frustumSize / -2;
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// ============================================
+// MARIO CHARACTER CREATION
+// ============================================
+function createMario() {
+    mario = new THREE.Group();
+    mario.name = 'mario';
+
+    // Materials
+    const redMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.MARIO_RED });
+    const blueMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.MARIO_BLUE });
+    const skinMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.MARIO_SKIN });
+    const brownMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.MARIO_BROWN });
+    const whiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const blackMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
+
+    // Body group
+    const bodyGroup = new THREE.Group();
+
+    // Torso (red shirt)
+    const torsoGeom = new THREE.BoxGeometry(0.6, 0.5, 0.4);
+    const torso = new THREE.Mesh(torsoGeom, redMat);
+    torso.position.y = 0.5;
+    torso.castShadow = true;
+    bodyGroup.add(torso);
+
+    // Overall straps
+    const strapGeom = new THREE.BoxGeometry(0.1, 0.5, 0.42);
+    const leftStrap = new THREE.Mesh(strapGeom, blueMat);
+    leftStrap.position.set(-0.2, 0.5, 0);
+    bodyGroup.add(leftStrap);
+
+    const rightStrap = new THREE.Mesh(strapGeom, blueMat);
+    rightStrap.position.set(0.2, 0.5, 0);
+    bodyGroup.add(rightStrap);
+
+    // Overalls (pants)
+    const pantsGeom = new THREE.BoxGeometry(0.6, 0.35, 0.4);
+    const pants = new THREE.Mesh(pantsGeom, blueMat);
+    pants.position.y = 0.15;
+    pants.castShadow = true;
+    bodyGroup.add(pants);
+
+    // Head
+    const headGroup = new THREE.Group();
+    headGroup.position.y = 1;
+
+    // Face sphere
+    const headGeom = new THREE.SphereGeometry(0.3, 16, 16);
+    const head = new THREE.Mesh(headGeom, skinMat);
+    head.castShadow = true;
+    headGroup.add(head);
+
+    // Cap
+    const capGeom = new THREE.SphereGeometry(0.32, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    const cap = new THREE.Mesh(capGeom, redMat);
+    cap.position.y = 0.05;
+    cap.castShadow = true;
+    headGroup.add(cap);
+
+    // Cap brim
+    const brimGeom = new THREE.CylinderGeometry(0.15, 0.2, 0.08, 16);
+    const brim = new THREE.Mesh(brimGeom, redMat);
+    brim.position.set(0, 0, 0.25);
+    brim.rotation.x = Math.PI / 2;
+    headGroup.add(brim);
+
+    // Eyes
+    const eyeGeom = new THREE.SphereGeometry(0.06, 8, 8);
+    const leftEye = new THREE.Mesh(eyeGeom, whiteMat);
+    leftEye.position.set(-0.1, 0, 0.25);
+    headGroup.add(leftEye);
+
+    const rightEye = new THREE.Mesh(eyeGeom, whiteMat);
+    rightEye.position.set(0.1, 0, 0.25);
+    headGroup.add(rightEye);
+
+    // Pupils
+    const pupilGeom = new THREE.SphereGeometry(0.03, 8, 8);
+    const leftPupil = new THREE.Mesh(pupilGeom, blackMat);
+    leftPupil.position.set(-0.1, 0, 0.3);
+    headGroup.add(leftPupil);
+
+    const rightPupil = new THREE.Mesh(pupilGeom, blackMat);
+    rightPupil.position.set(0.1, 0, 0.3);
+    headGroup.add(rightPupil);
+
+    // Mustache
+    const mustacheGeom = new THREE.BoxGeometry(0.25, 0.06, 0.1);
+    const mustache = new THREE.Mesh(mustacheGeom, brownMat);
+    mustache.position.set(0, -0.1, 0.25);
+    headGroup.add(mustache);
+
+    // Nose
+    const noseGeom = new THREE.SphereGeometry(0.08, 8, 8);
+    const nose = new THREE.Mesh(noseGeom, skinMat);
+    nose.position.set(0, -0.02, 0.32);
+    headGroup.add(nose);
+
+    bodyGroup.add(headGroup);
+
+    // Arms
+    const armGeom = new THREE.CylinderGeometry(0.08, 0.08, 0.4, 8);
+
+    const leftArm = new THREE.Group();
+    const leftArmMesh = new THREE.Mesh(armGeom, redMat);
+    leftArmMesh.castShadow = true;
+    leftArm.add(leftArmMesh);
+    leftArm.position.set(-0.4, 0.5, 0);
+    leftArm.rotation.z = Math.PI / 6;
+    bodyGroup.add(leftArm);
+    mario.leftArm = leftArm;
+
+    const rightArm = new THREE.Group();
+    const rightArmMesh = new THREE.Mesh(armGeom, redMat);
+    rightArmMesh.castShadow = true;
+    rightArm.add(rightArmMesh);
+    rightArm.position.set(0.4, 0.5, 0);
+    rightArm.rotation.z = -Math.PI / 6;
+    bodyGroup.add(rightArm);
+    mario.rightArm = rightArm;
+
+    // Hands
+    const handGeom = new THREE.SphereGeometry(0.1, 8, 8);
+    const leftHand = new THREE.Mesh(handGeom, whiteMat);
+    leftHand.position.y = -0.25;
+    leftArm.add(leftHand);
+
+    const rightHand = new THREE.Mesh(handGeom, whiteMat);
+    rightHand.position.y = -0.25;
+    rightArm.add(rightHand);
+
+    // Legs
+    const legGeom = new THREE.CylinderGeometry(0.1, 0.1, 0.35, 8);
+
+    const leftLeg = new THREE.Group();
+    const leftLegMesh = new THREE.Mesh(legGeom, blueMat);
+    leftLegMesh.castShadow = true;
+    leftLeg.add(leftLegMesh);
+    leftLeg.position.set(-0.15, -0.15, 0);
+    bodyGroup.add(leftLeg);
+    mario.leftLeg = leftLeg;
+
+    const rightLeg = new THREE.Group();
+    const rightLegMesh = new THREE.Mesh(legGeom, blueMat);
+    rightLegMesh.castShadow = true;
+    rightLeg.add(rightLegMesh);
+    rightLeg.position.set(0.15, -0.15, 0);
+    bodyGroup.add(rightLeg);
+    mario.rightLeg = rightLeg;
+
+    // Shoes
+    const shoeGeom = new THREE.BoxGeometry(0.15, 0.12, 0.25);
+    const leftShoe = new THREE.Mesh(shoeGeom, brownMat);
+    leftShoe.position.set(0, -0.2, 0.05);
+    leftShoe.castShadow = true;
+    leftLeg.add(leftShoe);
+
+    const rightShoe = new THREE.Mesh(shoeGeom, brownMat);
+    rightShoe.position.set(0, -0.2, 0.05);
+    rightShoe.castShadow = true;
+    rightLeg.add(rightShoe);
+
+    mario.add(bodyGroup);
+    mario.bodyGroup = bodyGroup;
+
+    // Mario physics properties
+    mario.velocity = new THREE.Vector3(0, 0, 0);
+    mario.onGround = false;
+    mario.facingRight = true;
+    mario.animationTime = 0;
+    mario.currentAnimation = 'idle';
+    mario.canJump = true;
+
+    // Position Mario at start
+    mario.position.set(3, 2, 0);
+
+    scene.add(mario);
+}
+
+// Update Mario's appearance based on power-up state
+function updateMarioAppearance() {
+    const scale = gameState.marioState === 'small' ?
+        GAME_CONFIG.MARIO_SMALL_SCALE : GAME_CONFIG.MARIO_BIG_SCALE;
+
+    mario.scale.set(scale, scale, scale);
+
+    // Change colors for fire Mario
+    if (gameState.marioState === 'fire') {
+        mario.traverse((child) => {
+            if (child.material) {
+                if (child.material.color.getHex() === GAME_CONFIG.COLORS.MARIO_RED) {
+                    child.material = child.material.clone();
+                    child.material.color.setHex(0xffffff);
+                }
+            }
+        });
+    }
+}
+
+// ============================================
+// MARIO ANIMATIONS
+// ============================================
+function animateMario(deltaTime) {
+    if (!mario) return;
+
+    mario.animationTime += deltaTime;
+
+    const speed = Math.abs(mario.velocity.x);
+
+    // Invincibility flashing
+    if (gameState.isInvincible) {
+        mario.visible = Math.floor(mario.animationTime * 10) % 2 === 0;
+    } else {
+        mario.visible = true;
+    }
+
+    // Determine animation state
+    if (!mario.onGround) {
+        mario.currentAnimation = 'jump';
+    } else if (speed > 0.5) {
+        mario.currentAnimation = 'run';
+    } else {
+        mario.currentAnimation = 'idle';
+    }
+
+    // Apply animations
+    switch (mario.currentAnimation) {
+        case 'idle':
+            // Subtle breathing animation
+            mario.bodyGroup.position.y = Math.sin(mario.animationTime * 2) * 0.02;
+            mario.leftLeg.rotation.x = 0;
+            mario.rightLeg.rotation.x = 0;
+            mario.leftArm.rotation.x = 0;
+            mario.rightArm.rotation.x = 0;
+            break;
+
+        case 'run':
+            // Running animation - legs and arms swing
+            const runSpeed = speed * 0.5;
+            mario.leftLeg.rotation.x = Math.sin(mario.animationTime * runSpeed * 10) * 0.8;
+            mario.rightLeg.rotation.x = Math.sin(mario.animationTime * runSpeed * 10 + Math.PI) * 0.8;
+            mario.leftArm.rotation.x = Math.sin(mario.animationTime * runSpeed * 10 + Math.PI) * 0.5;
+            mario.rightArm.rotation.x = Math.sin(mario.animationTime * runSpeed * 10) * 0.5;
+            mario.bodyGroup.position.y = Math.abs(Math.sin(mario.animationTime * runSpeed * 10)) * 0.05;
+            break;
+
+        case 'jump':
+            // Jumping pose
+            mario.leftLeg.rotation.x = -0.3;
+            mario.rightLeg.rotation.x = 0.3;
+            mario.leftArm.rotation.x = -0.5;
+            mario.rightArm.rotation.x = 0.5;
+            mario.leftArm.rotation.z = Math.PI / 3;
+            mario.rightArm.rotation.z = -Math.PI / 3;
+            break;
+    }
+
+    // Face direction
+    if (mario.facingRight) {
+        mario.bodyGroup.rotation.y = 0;
+    } else {
+        mario.bodyGroup.rotation.y = Math.PI;
+    }
+}
+
+// ============================================
+// LEVEL CREATION
+// ============================================
+function createLevel() {
+    // Clear existing level objects
+    gameState.platforms = [];
+    gameState.questionBlocks = [];
+    gameState.brickBlocks = [];
+    gameState.enemies = [];
+    gameState.coins = [];
+    gameState.powerUps = [];
+
+    // Create ground
+    createGround();
+
+    // Create decorative background elements
+    createBackground();
+
+    // Create level elements
+    createPlatforms();
+
+    // Create question blocks
+    createQuestionBlocks();
+
+    // Create brick blocks
+    createBrickBlocks();
+
+    // Create pipes
+    createPipes();
+
+    // Create enemies
+    createEnemies();
+
+    // Create floating coins
+    createFloatingCoins();
+
+    // Create flagpole at the end
+    createFlagpole();
+}
+
+function createGround() {
+    const groundMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.GROUND });
+    const grassMat = new THREE.MeshLambertMaterial({ color: 0x00a800 });
+
+    // Create ground segments with gaps
+    const groundSegments = [
+        { start: 0, end: 65 },
+        { start: 70, end: 85 },  // Gap from 65-70
+        { start: 90, end: GAME_CONFIG.LEVEL_WIDTH }  // Gap from 85-90
+    ];
+
+    groundSegments.forEach(segment => {
+        const width = segment.end - segment.start;
+        const centerX = segment.start + width / 2;
+
+        // Main ground block
+        const groundGeom = new THREE.BoxGeometry(width, 2, 4);
+        const ground = new THREE.Mesh(groundGeom, groundMat);
+        ground.position.set(centerX, -1, 0);
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Ground collision box
+        gameState.platforms.push({
+            mesh: ground,
+            box: new THREE.Box3().setFromObject(ground),
+            type: 'ground'
+        });
+
+        // Grass layer on top
+        const grassGeom = new THREE.BoxGeometry(width, 0.2, 4);
+        const grass = new THREE.Mesh(grassGeom, grassMat);
+        grass.position.set(centerX, 0.1, 0);
+        scene.add(grass);
+    });
+}
+
+function createBackground() {
+    // Clouds
+    const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const cloudPositions = [
+        { x: 5, y: 8, z: -5, scale: 1 },
+        { x: 20, y: 10, z: -8, scale: 1.5 },
+        { x: 40, y: 7, z: -6, scale: 1.2 },
+        { x: 60, y: 9, z: -7, scale: 1.3 },
+        { x: 85, y: 8, z: -5, scale: 1 },
+        { x: 110, y: 10, z: -8, scale: 1.5 },
+        { x: 140, y: 7, z: -6, scale: 1.2 },
+        { x: 170, y: 9, z: -7, scale: 1.3 }
+    ];
+
+    cloudPositions.forEach(pos => {
+        const cloud = createCloud();
+        cloud.position.set(pos.x, pos.y, pos.z);
+        cloud.scale.set(pos.scale, pos.scale, pos.scale);
+        scene.add(cloud);
+    });
+
+    // Hills in background
+    const hillMat = new THREE.MeshLambertMaterial({ color: 0x00c000 });
+    const hillPositions = [
+        { x: 10, scale: 2 },
+        { x: 35, scale: 3 },
+        { x: 70, scale: 2.5 },
+        { x: 100, scale: 2 },
+        { x: 130, scale: 3 },
+        { x: 160, scale: 2.5 }
+    ];
+
+    hillPositions.forEach(pos => {
+        const hillGeom = new THREE.ConeGeometry(pos.scale * 2, pos.scale * 2, 32);
+        const hill = new THREE.Mesh(hillGeom, hillMat);
+        hill.position.set(pos.x, pos.scale - 1, -8);
+        scene.add(hill);
+    });
+
+    // Bushes
+    const bushMat = new THREE.MeshLambertMaterial({ color: 0x008000 });
+    for (let i = 0; i < 20; i++) {
+        const bush = createBush();
+        bush.position.set(i * 10 + Math.random() * 5, 0.3, 1.5);
+        scene.add(bush);
+    }
+}
+
+function createCloud() {
+    const cloud = new THREE.Group();
+    const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+
+    const positions = [
+        { x: 0, y: 0, r: 0.5 },
+        { x: 0.5, y: 0.2, r: 0.6 },
+        { x: -0.5, y: 0.1, r: 0.5 },
+        { x: 0.3, y: -0.1, r: 0.4 },
+        { x: -0.3, y: -0.1, r: 0.4 }
+    ];
+
+    positions.forEach(pos => {
+        const geom = new THREE.SphereGeometry(pos.r, 16, 16);
+        const mesh = new THREE.Mesh(geom, cloudMat);
+        mesh.position.set(pos.x, pos.y, 0);
+        cloud.add(mesh);
+    });
+
+    return cloud;
+}
+
+function createBush() {
+    const bush = new THREE.Group();
+    const bushMat = new THREE.MeshLambertMaterial({ color: 0x008000 });
+
+    for (let i = 0; i < 3; i++) {
+        const geom = new THREE.SphereGeometry(0.3 + Math.random() * 0.2, 8, 8);
+        const mesh = new THREE.Mesh(geom, bushMat);
+        mesh.position.x = (i - 1) * 0.4;
+        mesh.position.y = Math.random() * 0.1;
+        bush.add(mesh);
+    }
+
+    return bush;
+}
+
+function createPlatforms() {
+    // Floating platforms at various positions
+    const platformData = [
+        // Stair-like platforms
+        { x: 25, y: 3, width: 3 },
+        { x: 28, y: 5, width: 3 },
+        { x: 31, y: 7, width: 3 },
+
+        // Mid-level platforms
+        { x: 50, y: 4, width: 5 },
+        { x: 58, y: 4, width: 3 },
+
+        // High platforms
+        { x: 75, y: 6, width: 4 },
+        { x: 82, y: 6, width: 4 },
+
+        // After gap platforms
+        { x: 95, y: 3, width: 3 },
+        { x: 100, y: 5, width: 4 },
+
+        // Final section
+        { x: 120, y: 4, width: 5 },
+        { x: 130, y: 6, width: 4 },
+        { x: 145, y: 4, width: 3 }
+    ];
+
+    const platformMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.GROUND });
+
+    platformData.forEach(data => {
+        const geom = new THREE.BoxGeometry(data.width, 0.5, 2);
+        const platform = new THREE.Mesh(geom, platformMat);
+        platform.position.set(data.x, data.y, 0);
+        platform.castShadow = true;
+        platform.receiveShadow = true;
+        scene.add(platform);
+
+        gameState.platforms.push({
+            mesh: platform,
+            box: new THREE.Box3().setFromObject(platform),
+            type: 'platform'
+        });
+    });
+}
+
+function createQuestionBlocks() {
+    const questionBlockPositions = [
+        { x: 15, y: 4, content: 'coin' },
+        { x: 20, y: 4, content: 'mushroom' },
+        { x: 22, y: 4, content: 'coin' },
+        { x: 21, y: 8, content: 'fireflower' },
+        { x: 45, y: 4, content: 'coin' },
+        { x: 47, y: 4, content: 'mushroom' },
+        { x: 55, y: 8, content: 'coin' },
+        { x: 80, y: 4, content: 'fireflower' },
+        { x: 105, y: 4, content: 'coin' },
+        { x: 115, y: 4, content: 'mushroom' },
+        { x: 125, y: 8, content: 'coin' },
+        { x: 140, y: 4, content: 'coin' }
+    ];
+
+    questionBlockPositions.forEach(data => {
+        const block = createQuestionBlock(data.content);
+        block.position.set(data.x, data.y, 0);
+        scene.add(block);
+
+        gameState.questionBlocks.push({
+            mesh: block,
+            box: new THREE.Box3().setFromObject(block),
+            content: data.content,
+            hit: false,
+            originalY: data.y
+        });
+
+        gameState.platforms.push({
+            mesh: block,
+            box: new THREE.Box3().setFromObject(block),
+            type: 'questionblock'
+        });
+    });
+}
+
+function createQuestionBlock(content) {
+    const block = new THREE.Group();
+
+    // Main block
+    const blockMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.QUESTION_BLOCK });
+    const geom = new THREE.BoxGeometry(1, 1, 1);
+    const mesh = new THREE.Mesh(geom, blockMat);
+    mesh.castShadow = true;
+    block.add(mesh);
+
+    // Question mark on front
+    const questionMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
+    const questionGeom = new THREE.BoxGeometry(0.4, 0.5, 0.1);
+    const question = new THREE.Mesh(questionGeom, questionMat);
+    question.position.z = 0.46;
+    block.add(question);
+
+    // Dot under question mark
+    const dotGeom = new THREE.BoxGeometry(0.15, 0.15, 0.1);
+    const dot = new THREE.Mesh(dotGeom, questionMat);
+    dot.position.set(0, -0.35, 0.46);
+    block.add(dot);
+
+    block.userData = { content: content, hit: false };
+
+    return block;
+}
+
+function createBrickBlocks() {
+    const brickPositions = [
+        { x: 16, y: 4 },
+        { x: 17, y: 4 },
+        { x: 18, y: 4 },
+        { x: 23, y: 4 },
+        { x: 24, y: 4 },
+        { x: 19, y: 8 },
+        { x: 20, y: 8 },
+        { x: 22, y: 8 },
+        { x: 23, y: 8 },
+        { x: 43, y: 4 },
+        { x: 44, y: 4 },
+        { x: 48, y: 4 },
+        { x: 49, y: 4 },
+        { x: 53, y: 8 },
+        { x: 54, y: 8 },
+        { x: 56, y: 8 },
+        { x: 57, y: 8 },
+        { x: 110, y: 4 },
+        { x: 111, y: 4 },
+        { x: 112, y: 4 },
+        { x: 135, y: 4 },
+        { x: 136, y: 4 }
+    ];
+
+    brickPositions.forEach(data => {
+        const brick = createBrickBlock();
+        brick.position.set(data.x, data.y, 0);
+        scene.add(brick);
+
+        const brickData = {
+            mesh: brick,
+            box: new THREE.Box3().setFromObject(brick),
+            broken: false,
+            originalY: data.y
+        };
+
+        gameState.brickBlocks.push(brickData);
+
+        gameState.platforms.push({
+            mesh: brick,
+            box: new THREE.Box3().setFromObject(brick),
+            type: 'brick',
+            brickData: brickData
+        });
+    });
+}
+
+function createBrickBlock() {
+    const block = new THREE.Group();
+
+    const brickMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.BRICK });
+    const geom = new THREE.BoxGeometry(1, 1, 1);
+    const mesh = new THREE.Mesh(geom, brickMat);
+    mesh.castShadow = true;
+    block.add(mesh);
+
+    // Add brick lines
+    const lineMat = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
+
+    // Horizontal lines
+    for (let i = -0.25; i <= 0.25; i += 0.5) {
+        const lineGeom = new THREE.BoxGeometry(1.01, 0.05, 0.05);
+        const line = new THREE.Mesh(lineGeom, lineMat);
+        line.position.set(0, i, 0.48);
+        block.add(line);
+    }
+
+    // Vertical lines (staggered like real bricks)
+    for (let j = -0.5; j <= 0.5; j += 0.5) {
+        const offset = (j / 0.5) % 2 === 0 ? 0 : 0.25;
+        const lineGeom = new THREE.BoxGeometry(0.05, 0.5, 0.05);
+        const line = new THREE.Mesh(lineGeom, lineMat);
+        line.position.set(offset, j / 2, 0.48);
+        block.add(line);
+    }
+
+    return block;
+}
+
+function createPipes() {
+    const pipePositions = [
+        { x: 28, height: 2 },
+        { x: 38, height: 3 },
+        { x: 48, height: 4 },
+        { x: 90, height: 2 },
+        { x: 115, height: 3 },
+        { x: 150, height: 2 }
+    ];
+
+    pipePositions.forEach(data => {
+        const pipe = createPipe(data.height);
+        pipe.position.set(data.x, data.height / 2, 0);
+        scene.add(pipe);
+
+        gameState.platforms.push({
+            mesh: pipe,
+            box: new THREE.Box3().setFromObject(pipe),
+            type: 'pipe'
+        });
+    });
+}
+
+function createPipe(height) {
+    const pipe = new THREE.Group();
+
+    const pipeMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.PIPE_GREEN });
+    const darkPipeMat = new THREE.MeshLambertMaterial({ color: 0x006400 });
+
+    // Pipe body
+    const bodyGeom = new THREE.CylinderGeometry(0.6, 0.6, height, 16);
+    const body = new THREE.Mesh(bodyGeom, pipeMat);
+    body.castShadow = true;
+    pipe.add(body);
+
+    // Pipe rim
+    const rimGeom = new THREE.CylinderGeometry(0.75, 0.75, 0.4, 16);
+    const rim = new THREE.Mesh(rimGeom, pipeMat);
+    rim.position.y = height / 2 - 0.2;
+    rim.castShadow = true;
+    pipe.add(rim);
+
+    // Dark inside
+    const insideGeom = new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16);
+    const inside = new THREE.Mesh(insideGeom, darkPipeMat);
+    inside.position.y = height / 2;
+    pipe.add(inside);
+
+    // Highlight strip
+    const highlightMat = new THREE.MeshLambertMaterial({ color: 0x40ff40 });
+    const highlightGeom = new THREE.BoxGeometry(0.1, height, 0.1);
+    const highlight = new THREE.Mesh(highlightGeom, highlightMat);
+    highlight.position.set(0.45, 0, 0);
+    pipe.add(highlight);
+
+    return pipe;
+}
+
+function createFloatingCoins() {
+    const coinPositions = [
+        { x: 12, y: 3 },
+        { x: 13, y: 3 },
+        { x: 14, y: 3 },
+        { x: 30, y: 8 },
+        { x: 31, y: 8 },
+        { x: 32, y: 8 },
+        { x: 52, y: 6 },
+        { x: 53, y: 6 },
+        { x: 54, y: 6 },
+        { x: 77, y: 8 },
+        { x: 78, y: 8 },
+        { x: 79, y: 8 },
+        { x: 97, y: 5 },
+        { x: 98, y: 5 },
+        { x: 122, y: 6 },
+        { x: 123, y: 6 },
+        { x: 124, y: 6 }
+    ];
+
+    coinPositions.forEach(pos => {
+        const coin = createCoin();
+        coin.position.set(pos.x, pos.y, 0);
+        scene.add(coin);
+
+        gameState.coins.push({
+            mesh: coin,
+            collected: false,
+            rotationSpeed: 2 + Math.random()
+        });
+    });
+}
+
+function createCoin() {
+    const coin = new THREE.Group();
+
+    const coinMat = new THREE.MeshLambertMaterial({
+        color: GAME_CONFIG.COLORS.COIN_GOLD,
+        emissive: 0x996600,
+        emissiveIntensity: 0.3
+    });
+
+    // Coin disc
+    const geom = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16);
+    const mesh = new THREE.Mesh(geom, coinMat);
+    mesh.rotation.x = Math.PI / 2;
+    mesh.castShadow = true;
+    coin.add(mesh);
+
+    return coin;
+}
+
+function createEnemies() {
+    // Goombas
+    const goombaPositions = [
+        { x: 22, type: 'goomba' },
+        { x: 35, type: 'goomba' },
+        { x: 42, type: 'goomba' },
+        { x: 55, type: 'goomba' },
+        { x: 65, type: 'goomba' },
+        { x: 95, type: 'goomba' },
+        { x: 105, type: 'goomba' },
+        { x: 125, type: 'goomba' },
+        { x: 135, type: 'goomba' }
+    ];
+
+    // Koopas
+    const koopaPositions = [
+        { x: 40, type: 'koopa' },
+        { x: 60, type: 'koopa' },
+        { x: 100, type: 'koopa' },
+        { x: 130, type: 'koopa' }
+    ];
+
+    goombaPositions.forEach(data => {
+        const goomba = createGoomba();
+        goomba.position.set(data.x, 0.5, 0);
+        scene.add(goomba);
+
+        gameState.enemies.push({
+            mesh: goomba,
+            type: 'goomba',
+            velocity: new THREE.Vector3(-GAME_CONFIG.GOOMBA_SPEED, 0, 0),
+            alive: true,
+            state: 'walking',
+            animationTime: Math.random() * Math.PI * 2
+        });
+    });
+
+    koopaPositions.forEach(data => {
+        const koopa = createKoopa();
+        koopa.position.set(data.x, 0.7, 0);
+        scene.add(koopa);
+
+        gameState.enemies.push({
+            mesh: koopa,
+            type: 'koopa',
+            velocity: new THREE.Vector3(-GAME_CONFIG.KOOPA_SPEED, 0, 0),
+            alive: true,
+            state: 'walking', // 'walking', 'shell', 'moving_shell'
+            animationTime: Math.random() * Math.PI * 2
+        });
+    });
+}
+
+function createGoomba() {
+    const goomba = new THREE.Group();
+
+    const brownMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.GOOMBA_BROWN });
+    const darkBrownMat = new THREE.MeshLambertMaterial({ color: 0x502000 });
+    const whiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const blackMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
+
+    // Body (mushroom shape)
+    const bodyGeom = new THREE.SphereGeometry(0.4, 16, 16);
+    const body = new THREE.Mesh(bodyGeom, brownMat);
+    body.scale.y = 0.8;
+    body.position.y = 0.3;
+    body.castShadow = true;
+    goomba.add(body);
+
+    // Head/cap
+    const capGeom = new THREE.SphereGeometry(0.45, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    const cap = new THREE.Mesh(capGeom, brownMat);
+    cap.position.y = 0.4;
+    cap.castShadow = true;
+    goomba.add(cap);
+
+    // Eyes
+    const eyeGeom = new THREE.SphereGeometry(0.1, 8, 8);
+    const leftEye = new THREE.Mesh(eyeGeom, whiteMat);
+    leftEye.position.set(-0.15, 0.4, 0.35);
+    goomba.add(leftEye);
+
+    const rightEye = new THREE.Mesh(eyeGeom, whiteMat);
+    rightEye.position.set(0.15, 0.4, 0.35);
+    goomba.add(rightEye);
+
+    // Pupils
+    const pupilGeom = new THREE.SphereGeometry(0.05, 8, 8);
+    const leftPupil = new THREE.Mesh(pupilGeom, blackMat);
+    leftPupil.position.set(-0.15, 0.4, 0.43);
+    goomba.add(leftPupil);
+
+    const rightPupil = new THREE.Mesh(pupilGeom, blackMat);
+    rightPupil.position.set(0.15, 0.4, 0.43);
+    goomba.add(rightPupil);
+
+    // Angry eyebrows
+    const browGeom = new THREE.BoxGeometry(0.15, 0.03, 0.05);
+    const leftBrow = new THREE.Mesh(browGeom, blackMat);
+    leftBrow.position.set(-0.15, 0.52, 0.4);
+    leftBrow.rotation.z = -0.3;
+    goomba.add(leftBrow);
+
+    const rightBrow = new THREE.Mesh(browGeom, blackMat);
+    rightBrow.position.set(0.15, 0.52, 0.4);
+    rightBrow.rotation.z = 0.3;
+    goomba.add(rightBrow);
+
+    // Feet
+    const footGeom = new THREE.SphereGeometry(0.15, 8, 8);
+    const leftFoot = new THREE.Mesh(footGeom, darkBrownMat);
+    leftFoot.position.set(-0.2, 0.05, 0.1);
+    leftFoot.scale.set(1, 0.5, 1.3);
+    goomba.add(leftFoot);
+    goomba.leftFoot = leftFoot;
+
+    const rightFoot = new THREE.Mesh(footGeom, darkBrownMat);
+    rightFoot.position.set(0.2, 0.05, 0.1);
+    rightFoot.scale.set(1, 0.5, 1.3);
+    goomba.add(rightFoot);
+    goomba.rightFoot = rightFoot;
+
+    return goomba;
+}
+
+function createKoopa() {
+    const koopa = new THREE.Group();
+
+    const greenMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.KOOPA_GREEN });
+    const yellowMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.KOOPA_YELLOW });
+    const whiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const blackMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
+
+    // Shell
+    const shellGroup = new THREE.Group();
+    const shellGeom = new THREE.SphereGeometry(0.4, 16, 16);
+    const shell = new THREE.Mesh(shellGeom, greenMat);
+    shell.scale.set(1, 0.8, 0.8);
+    shell.castShadow = true;
+    shellGroup.add(shell);
+
+    // Shell pattern
+    const patternMat = new THREE.MeshLambertMaterial({ color: 0x005000 });
+    for (let i = 0; i < 4; i++) {
+        const hexGeom = new THREE.CircleGeometry(0.12, 6);
+        const hex = new THREE.Mesh(hexGeom, patternMat);
+        hex.position.set(
+            Math.cos(i * Math.PI / 2) * 0.25,
+            Math.sin(i * Math.PI / 2) * 0.2,
+            0.35
+        );
+        shellGroup.add(hex);
+    }
+
+    shellGroup.position.y = 0.4;
+    koopa.add(shellGroup);
+    koopa.shell = shellGroup;
+
+    // Head
+    const headGroup = new THREE.Group();
+    const headGeom = new THREE.SphereGeometry(0.2, 16, 16);
+    const head = new THREE.Mesh(headGeom, yellowMat);
+    head.castShadow = true;
+    headGroup.add(head);
+
+    // Beak
+    const beakGeom = new THREE.ConeGeometry(0.08, 0.15, 8);
+    const beak = new THREE.Mesh(beakGeom, yellowMat);
+    beak.position.set(0, -0.05, 0.2);
+    beak.rotation.x = Math.PI / 2;
+    headGroup.add(beak);
+
+    // Eyes
+    const eyeGeom = new THREE.SphereGeometry(0.06, 8, 8);
+    const leftEye = new THREE.Mesh(eyeGeom, whiteMat);
+    leftEye.position.set(-0.08, 0.05, 0.15);
+    headGroup.add(leftEye);
+
+    const rightEye = new THREE.Mesh(eyeGeom, whiteMat);
+    rightEye.position.set(0.08, 0.05, 0.15);
+    headGroup.add(rightEye);
+
+    // Pupils
+    const pupilGeom = new THREE.SphereGeometry(0.03, 8, 8);
+    const leftPupil = new THREE.Mesh(pupilGeom, blackMat);
+    leftPupil.position.set(-0.08, 0.05, 0.2);
+    headGroup.add(leftPupil);
+
+    const rightPupil = new THREE.Mesh(pupilGeom, blackMat);
+    rightPupil.position.set(0.08, 0.05, 0.2);
+    headGroup.add(rightPupil);
+
+    headGroup.position.set(0, 0.6, 0.3);
+    koopa.add(headGroup);
+    koopa.head = headGroup;
+
+    // Feet
+    const footGeom = new THREE.SphereGeometry(0.12, 8, 8);
+    const leftFoot = new THREE.Mesh(footGeom, yellowMat);
+    leftFoot.position.set(-0.2, 0.08, 0.1);
+    leftFoot.scale.set(1, 0.5, 1.3);
+    koopa.add(leftFoot);
+    koopa.leftFoot = leftFoot;
+
+    const rightFoot = new THREE.Mesh(footGeom, yellowMat);
+    rightFoot.position.set(0.2, 0.08, 0.1);
+    rightFoot.scale.set(1, 0.5, 1.3);
+    koopa.add(rightFoot);
+    koopa.rightFoot = rightFoot;
+
+    return koopa;
+}
+
+function createFlagpole() {
+    const flagpole = new THREE.Group();
+    flagpole.position.set(GAME_CONFIG.LEVEL_WIDTH - 15, 0, 0);
+
+    // Pole
+    const poleMat = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
+    const poleGeom = new THREE.CylinderGeometry(0.1, 0.1, 10, 16);
+    const pole = new THREE.Mesh(poleGeom, poleMat);
+    pole.position.y = 5;
+    pole.castShadow = true;
+    flagpole.add(pole);
+
+    // Top ball
+    const ballGeom = new THREE.SphereGeometry(0.25, 16, 16);
+    const ball = new THREE.Mesh(ballGeom, poleMat);
+    ball.position.y = 10;
+    flagpole.add(ball);
+
+    // Flag
+    const flagMat = new THREE.MeshLambertMaterial({
+        color: 0x00ff00,
+        side: THREE.DoubleSide
+    });
+    const flagGeom = new THREE.PlaneGeometry(1.5, 1);
+    const flag = new THREE.Mesh(flagGeom, flagMat);
+    flag.position.set(0.75, 9, 0);
+    flagpole.add(flag);
+    flagpole.flag = flag;
+
+    // Base
+    const baseMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.GROUND });
+    const baseGeom = new THREE.BoxGeometry(2, 1, 2);
+    const base = new THREE.Mesh(baseGeom, baseMat);
+    base.position.y = 0.5;
+    base.castShadow = true;
+    flagpole.add(base);
+
+    scene.add(flagpole);
+    gameState.flagpole = {
+        mesh: flagpole,
+        position: flagpole.position.clone(),
+        triggered: false
+    };
+}
+
+// ============================================
+// POWER-UP CREATION
+// ============================================
+function createMushroom(position) {
+    const mushroom = new THREE.Group();
+
+    const capMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.MUSHROOM_RED });
+    const stemMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const spotMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+
+    // Cap
+    const capGeom = new THREE.SphereGeometry(0.35, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    const cap = new THREE.Mesh(capGeom, capMat);
+    cap.position.y = 0.2;
+    cap.castShadow = true;
+    mushroom.add(cap);
+
+    // White spots
+    for (let i = 0; i < 5; i++) {
+        const spotGeom = new THREE.SphereGeometry(0.08, 8, 8);
+        const spot = new THREE.Mesh(spotGeom, spotMat);
+        const angle = (i / 5) * Math.PI * 2;
+        spot.position.set(
+            Math.cos(angle) * 0.2,
+            0.35,
+            Math.sin(angle) * 0.2
+        );
+        mushroom.add(spot);
+    }
+
+    // Stem
+    const stemGeom = new THREE.CylinderGeometry(0.15, 0.2, 0.25, 16);
+    const stem = new THREE.Mesh(stemGeom, stemMat);
+    stem.position.y = 0.05;
+    mushroom.add(stem);
+
+    // Eyes
+    const eyeMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
+    const eyeGeom = new THREE.SphereGeometry(0.04, 8, 8);
+    const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
+    leftEye.position.set(-0.08, 0.15, 0.3);
+    mushroom.add(leftEye);
+
+    const rightEye = new THREE.Mesh(eyeGeom, eyeMat);
+    rightEye.position.set(0.08, 0.15, 0.3);
+    mushroom.add(rightEye);
+
+    mushroom.position.copy(position);
+    scene.add(mushroom);
+
+    gameState.powerUps.push({
+        mesh: mushroom,
+        type: 'mushroom',
+        velocity: new THREE.Vector3(3, 0, 0),
+        collected: false,
+        emerging: true,
+        emergeStart: position.y,
+        emergeTarget: position.y + 1
+    });
+}
+
+function createFireFlower(position) {
+    const flower = new THREE.Group();
+
+    // Stem
+    const stemMat = new THREE.MeshLambertMaterial({ color: 0x00aa00 });
+    const stemGeom = new THREE.CylinderGeometry(0.08, 0.08, 0.4, 8);
+    const stem = new THREE.Mesh(stemGeom, stemMat);
+    stem.position.y = 0.2;
+    flower.add(stem);
+
+    // Flower center
+    const centerMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.FIRE_FLOWER_YELLOW });
+    const centerGeom = new THREE.SphereGeometry(0.15, 16, 16);
+    const center = new THREE.Mesh(centerGeom, centerMat);
+    center.position.y = 0.45;
+    flower.add(center);
+
+    // Petals
+    const petalMat = new THREE.MeshLambertMaterial({ color: GAME_CONFIG.COLORS.FIRE_FLOWER_RED });
+    for (let i = 0; i < 8; i++) {
+        const petalGeom = new THREE.SphereGeometry(0.12, 8, 8);
+        const petal = new THREE.Mesh(petalGeom, petalMat);
+        const angle = (i / 8) * Math.PI * 2;
+        petal.position.set(
+            Math.cos(angle) * 0.2,
+            0.45,
+            Math.sin(angle) * 0.2
+        );
+        flower.add(petal);
+    }
+
+    // Eyes
+    const eyeMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
+    const eyeGeom = new THREE.SphereGeometry(0.03, 8, 8);
+    const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
+    leftEye.position.set(-0.06, 0.48, 0.12);
+    flower.add(leftEye);
+
+    const rightEye = new THREE.Mesh(eyeGeom, eyeMat);
+    rightEye.position.set(0.06, 0.48, 0.12);
+    flower.add(rightEye);
+
+    flower.position.copy(position);
+    scene.add(flower);
+
+    gameState.powerUps.push({
+        mesh: flower,
+        type: 'fireflower',
+        velocity: new THREE.Vector3(0, 0, 0),
+        collected: false,
+        emerging: true,
+        emergeStart: position.y,
+        emergeTarget: position.y + 1,
+        animationTime: 0
+    });
+}
+
+function createFireball() {
+    if (gameState.marioState !== 'fire') return;
+    if (gameState.fireballs.length >= 2) return; // Limit fireballs
+
+    sounds.fireball();
+
+    const fireball = new THREE.Group();
+
+    const fireMat = new THREE.MeshLambertMaterial({
+        color: 0xff4500,
+        emissive: 0xff2200,
+        emissiveIntensity: 0.5
+    });
+
+    const geom = new THREE.SphereGeometry(0.15, 8, 8);
+    const mesh = new THREE.Mesh(geom, fireMat);
+    fireball.add(mesh);
+
+    // Position at Mario's hand
+    const direction = mario.facingRight ? 1 : -1;
+    fireball.position.set(
+        mario.position.x + direction * 0.5,
+        mario.position.y + 0.5,
+        0
+    );
+
+    scene.add(fireball);
+
+    gameState.fireballs.push({
+        mesh: fireball,
+        velocity: new THREE.Vector3(direction * 10, 0, 0),
+        bounces: 0,
+        maxBounces: 4
+    });
+}
+
+// ============================================
+// PARTICLE EFFECTS
+// ============================================
+function createParticles(position, color, count = 10) {
+    for (let i = 0; i < count; i++) {
+        const particle = new THREE.Mesh(
+            new THREE.BoxGeometry(0.1, 0.1, 0.1),
+            new THREE.MeshLambertMaterial({ color: color })
+        );
+
+        particle.position.copy(position);
+        scene.add(particle);
+
+        gameState.particles.push({
+            mesh: particle,
+            velocity: new THREE.Vector3(
+                (Math.random() - 0.5) * 8,
+                Math.random() * 8 + 2,
+                (Math.random() - 0.5) * 2
+            ),
+            life: 1.0
+        });
+    }
+}
+
+function createCoinParticle(position) {
+    const coin = createCoin();
+    coin.position.copy(position);
+    scene.add(coin);
+
+    gameState.particles.push({
+        mesh: coin,
+        velocity: new THREE.Vector3(0, 12, 0),
+        life: 0.8,
+        isCoin: true
+    });
+}
+
+// ============================================
+// PHYSICS & COLLISION
+// ============================================
+function updatePhysics(deltaTime) {
+    if (!mario || gameState.currentState !== 'playing') return;
+
+    // Apply gravity
+    mario.velocity.y += GAME_CONFIG.GRAVITY * deltaTime;
+    mario.velocity.y = Math.max(mario.velocity.y, GAME_CONFIG.MAX_FALL_SPEED);
+
+    // Apply horizontal movement
+    const moveAccel = mario.onGround ? 1 : GAME_CONFIG.AIR_CONTROL;
+
+    if (gameState.keys.left) {
+        mario.velocity.x -= GAME_CONFIG.MOVE_SPEED * moveAccel * deltaTime * 10;
+        mario.facingRight = false;
+    }
+    if (gameState.keys.right) {
+        mario.velocity.x += GAME_CONFIG.MOVE_SPEED * moveAccel * deltaTime * 10;
+        mario.facingRight = true;
+    }
+
+    // Apply friction
+    if (!gameState.keys.left && !gameState.keys.right) {
+        mario.velocity.x *= GAME_CONFIG.FRICTION;
+    }
+
+    // Clamp horizontal speed
+    mario.velocity.x = Math.max(-GAME_CONFIG.MOVE_SPEED, Math.min(GAME_CONFIG.MOVE_SPEED, mario.velocity.x));
+
+    // Jump
+    if ((gameState.keys.jump || gameState.keys.up) && mario.onGround && mario.canJump) {
+        mario.velocity.y = GAME_CONFIG.JUMP_FORCE;
+        mario.onGround = false;
+        mario.canJump = false;
+        sounds.jump();
+    }
+
+    // Reset jump ability when key released
+    if (!gameState.keys.jump && !gameState.keys.up) {
+        mario.canJump = true;
+    }
+
+    // Store old position for collision resolution
+    const oldPosition = mario.position.clone();
+
+    // Apply velocity
+    mario.position.x += mario.velocity.x * deltaTime;
+    mario.position.y += mario.velocity.y * deltaTime;
+
+    // Reset ground state
+    mario.onGround = false;
+
+    // Create Mario's bounding box
+    const marioHeight = gameState.marioState === 'small' ? 0.8 : 1.2;
+    const marioBox = new THREE.Box3(
+        new THREE.Vector3(
+            mario.position.x - 0.25,
+            mario.position.y - 0.1,
+            mario.position.z - 0.2
+        ),
+        new THREE.Vector3(
+            mario.position.x + 0.25,
+            mario.position.y + marioHeight,
+            mario.position.z + 0.2
+        )
+    );
+
+    // Platform collision
+    gameState.platforms.forEach(platform => {
+        if (!platform.mesh.visible) return;
+
+        platform.box.setFromObject(platform.mesh);
+
+        if (marioBox.intersectsBox(platform.box)) {
+            // Determine collision side
+            const marioCenter = new THREE.Vector3();
+            marioBox.getCenter(marioCenter);
+
+            const platformCenter = new THREE.Vector3();
+            platform.box.getCenter(platformCenter);
+
+            const overlapX = (marioBox.max.x - marioBox.min.x) / 2 +
+                           (platform.box.max.x - platform.box.min.x) / 2 -
+                           Math.abs(marioCenter.x - platformCenter.x);
+
+            const overlapY = (marioBox.max.y - marioBox.min.y) / 2 +
+                           (platform.box.max.y - platform.box.min.y) / 2 -
+                           Math.abs(marioCenter.y - platformCenter.y);
+
+            if (overlapX < overlapY) {
+                // Horizontal collision
+                if (marioCenter.x < platformCenter.x) {
+                    mario.position.x = platform.box.min.x - 0.25;
+                } else {
+                    mario.position.x = platform.box.max.x + 0.25;
+                }
+                mario.velocity.x = 0;
+            } else {
+                // Vertical collision
+                if (marioCenter.y > platformCenter.y) {
+                    // Landing on top
+                    mario.position.y = platform.box.max.y + 0.1;
+                    mario.velocity.y = 0;
+                    mario.onGround = true;
+                } else {
+                    // Hitting from below
+                    mario.position.y = platform.box.min.y - marioHeight;
+                    mario.velocity.y = 0;
+                    sounds.bump();
+
+                    // Handle hitting blocks from below
+                    if (platform.type === 'questionblock') {
+                        hitQuestionBlock(platform);
+                    } else if (platform.type === 'brick' && platform.brickData) {
+                        hitBrickBlock(platform.brickData);
+                    }
+                }
+            }
+        }
+    });
+
+    // World bounds
+    mario.position.x = Math.max(0, mario.position.x);
+
+    // Fall death
+    if (mario.position.y < -5) {
+        marioHit(true);
+    }
+
+    // Update invincibility
+    if (gameState.isInvincible) {
+        gameState.invincibilityTimer -= deltaTime * 1000;
+        if (gameState.invincibilityTimer <= 0) {
+            gameState.isInvincible = false;
+        }
+    }
+}
+
+function hitQuestionBlock(platform) {
+    const blockData = gameState.questionBlocks.find(b => b.mesh === platform.mesh);
+    if (!blockData || blockData.hit) return;
+
+    blockData.hit = true;
+
+    // Animate block bump
+    animateBlockBump(blockData);
+
+    // Change block appearance to empty
+    platform.mesh.children.forEach(child => {
+        if (child.material) {
+            child.material = new THREE.MeshLambertMaterial({ color: 0x8b4513 });
+        }
+    });
+
+    // Spawn content
+    const spawnPos = new THREE.Vector3(
+        blockData.mesh.position.x,
+        blockData.mesh.position.y + 0.5,
+        blockData.mesh.position.z
+    );
+
+    switch (blockData.content) {
+        case 'coin':
+            sounds.coin();
+            addScore(200);
+            gameState.coinCount++;
+            updateHUD();
+            createCoinParticle(spawnPos);
+            break;
+        case 'mushroom':
+            if (gameState.marioState === 'small') {
+                createMushroom(spawnPos);
+            } else {
+                createFireFlower(spawnPos);
+            }
+            break;
+        case 'fireflower':
+            if (gameState.marioState === 'small') {
+                createMushroom(spawnPos);
+            } else {
+                createFireFlower(spawnPos);
+            }
+            break;
+    }
+}
+
+function hitBrickBlock(brickData) {
+    if (brickData.broken) return;
+
+    if (gameState.marioState === 'small') {
+        // Small Mario just bumps the brick
+        animateBlockBump(brickData);
+    } else {
+        // Big/Fire Mario breaks the brick
+        brickData.broken = true;
+        brickData.mesh.visible = false;
+
+        // Remove from platforms
+        const platformIndex = gameState.platforms.findIndex(p => p.mesh === brickData.mesh);
+        if (platformIndex >= 0) {
+            gameState.platforms.splice(platformIndex, 1);
+        }
+
+        // Create debris particles
+        createParticles(brickData.mesh.position, GAME_CONFIG.COLORS.BRICK, 8);
+        addScore(50);
+    }
+}
+
+function animateBlockBump(blockData) {
+    const startY = blockData.originalY;
+    const bumpHeight = 0.3;
+    let progress = 0;
+
+    const animate = () => {
+        progress += 0.1;
+        if (progress <= 1) {
+            const offset = Math.sin(progress * Math.PI) * bumpHeight;
+            blockData.mesh.position.y = startY + offset;
+            requestAnimationFrame(animate);
+        } else {
+            blockData.mesh.position.y = startY;
+        }
+    };
+
+    animate();
+}
+
+// ============================================
+// ENEMY UPDATE
+// ============================================
+function updateEnemies(deltaTime) {
+    gameState.enemies.forEach((enemy, index) => {
+        if (!enemy.alive) {
+            // Death animation
+            if (enemy.deathTimer !== undefined) {
+                enemy.deathTimer -= deltaTime;
+                if (enemy.deathTimer <= 0) {
+                    scene.remove(enemy.mesh);
+                    gameState.enemies.splice(index, 1);
+                }
+            }
+            return;
+        }
+
+        enemy.animationTime += deltaTime;
+
+        // Movement
+        if (enemy.state === 'walking' || enemy.state === 'moving_shell') {
+            const speed = enemy.state === 'moving_shell' ?
+                GAME_CONFIG.SHELL_SPEED :
+                (enemy.type === 'goomba' ? GAME_CONFIG.GOOMBA_SPEED : GAME_CONFIG.KOOPA_SPEED);
+
+            enemy.mesh.position.x += enemy.velocity.x * deltaTime;
+
+            // Apply gravity
+            enemy.velocity.y = (enemy.velocity.y || 0) + GAME_CONFIG.GRAVITY * deltaTime;
+            enemy.mesh.position.y += enemy.velocity.y * deltaTime;
+
+            // Ground collision
+            let onGround = false;
+            gameState.platforms.forEach(platform => {
+                if (!platform.mesh.visible) return;
+
+                const enemyBox = new THREE.Box3().setFromObject(enemy.mesh);
+                platform.box.setFromObject(platform.mesh);
+
+                if (enemyBox.intersectsBox(platform.box)) {
+                    const enemyCenter = new THREE.Vector3();
+                    enemyBox.getCenter(enemyCenter);
+
+                    const platformCenter = new THREE.Vector3();
+                    platform.box.getCenter(platformCenter);
+
+                    if (enemyCenter.y > platformCenter.y) {
+                        enemy.mesh.position.y = platform.box.max.y + 0.5;
+                        enemy.velocity.y = 0;
+                        onGround = true;
+                    } else {
+                        // Hit wall, reverse direction
+                        enemy.velocity.x *= -1;
+                        enemy.mesh.position.x += enemy.velocity.x * deltaTime * 2;
+                    }
+                }
+            });
+
+            // Fall death for enemies
+            if (enemy.mesh.position.y < -5) {
+                enemy.alive = false;
+                enemy.deathTimer = 0;
+            }
+
+            // Simple edge detection - reverse at certain points
+            if (enemy.mesh.position.x < 5 || enemy.mesh.position.x > GAME_CONFIG.LEVEL_WIDTH - 20) {
+                enemy.velocity.x *= -1;
+            }
+        }
+
+        // Animation
+        if (enemy.type === 'goomba' && enemy.state === 'walking') {
+            // Walking animation
+            if (enemy.mesh.leftFoot && enemy.mesh.rightFoot) {
+                enemy.mesh.leftFoot.position.z = 0.1 + Math.sin(enemy.animationTime * 10) * 0.1;
+                enemy.mesh.rightFoot.position.z = 0.1 + Math.sin(enemy.animationTime * 10 + Math.PI) * 0.1;
+            }
+            // Face direction
+            enemy.mesh.rotation.y = enemy.velocity.x > 0 ? 0 : Math.PI;
+        }
+
+        if (enemy.type === 'koopa') {
+            if (enemy.state === 'walking') {
+                // Walking animation
+                if (enemy.mesh.leftFoot && enemy.mesh.rightFoot) {
+                    enemy.mesh.leftFoot.position.z = 0.1 + Math.sin(enemy.animationTime * 10) * 0.1;
+                    enemy.mesh.rightFoot.position.z = 0.1 + Math.sin(enemy.animationTime * 10 + Math.PI) * 0.1;
+                }
+                enemy.mesh.rotation.y = enemy.velocity.x > 0 ? 0 : Math.PI;
+            } else if (enemy.state === 'shell') {
+                // Shell stationary - hide head and feet
+                if (enemy.mesh.head) enemy.mesh.head.visible = false;
+                if (enemy.mesh.leftFoot) enemy.mesh.leftFoot.visible = false;
+                if (enemy.mesh.rightFoot) enemy.mesh.rightFoot.visible = false;
+            } else if (enemy.state === 'moving_shell') {
+                // Spinning shell
+                enemy.mesh.rotation.y += deltaTime * 20;
+            }
+        }
+
+        // Collision with Mario
+        if (mario && gameState.currentState === 'playing') {
+            const enemyBox = new THREE.Box3().setFromObject(enemy.mesh);
+            const marioHeight = gameState.marioState === 'small' ? 0.8 : 1.2;
+            const marioBox = new THREE.Box3(
+                new THREE.Vector3(mario.position.x - 0.25, mario.position.y - 0.1, mario.position.z - 0.2),
+                new THREE.Vector3(mario.position.x + 0.25, mario.position.y + marioHeight, mario.position.z + 0.2)
+            );
+
+            if (marioBox.intersectsBox(enemyBox)) {
+                // Check if stomping (Mario falling and above enemy)
+                const marioBottom = mario.position.y - 0.1;
+                const enemyTop = enemy.mesh.position.y + 0.4;
+
+                if (mario.velocity.y < 0 && marioBottom > enemyTop - 0.3) {
+                    // Stomp!
+                    stompEnemy(enemy);
+                    mario.velocity.y = 10; // Bounce
+                } else if (!gameState.isInvincible) {
+                    // Hit by enemy
+                    if (enemy.state !== 'shell') {
+                        marioHit();
+                    } else if (enemy.state === 'shell') {
+                        // Kick stationary shell
+                        enemy.state = 'moving_shell';
+                        enemy.velocity.x = mario.position.x < enemy.mesh.position.x ?
+                            GAME_CONFIG.SHELL_SPEED : -GAME_CONFIG.SHELL_SPEED;
+                        sounds.stomp();
+                    }
+                }
+            }
+        }
+
+        // Shell collision with other enemies
+        if (enemy.state === 'moving_shell') {
+            gameState.enemies.forEach((other, otherIndex) => {
+                if (other === enemy || !other.alive) return;
+
+                const shellBox = new THREE.Box3().setFromObject(enemy.mesh);
+                const otherBox = new THREE.Box3().setFromObject(other.mesh);
+
+                if (shellBox.intersectsBox(otherBox)) {
+                    // Kill the other enemy
+                    other.alive = false;
+                    other.deathTimer = 0.5;
+                    other.mesh.rotation.x = Math.PI;
+                    other.mesh.position.y += 0.5;
+                    addScore(100);
+                    sounds.stomp();
+                }
+            });
+        }
+    });
+}
+
+function stompEnemy(enemy) {
+    sounds.stomp();
+    addScore(100);
+
+    if (enemy.type === 'goomba') {
+        enemy.alive = false;
+        enemy.deathTimer = 0.5;
+        enemy.mesh.scale.y = 0.3;
+        enemy.mesh.position.y = 0.15;
+    } else if (enemy.type === 'koopa') {
+        if (enemy.state === 'walking') {
+            enemy.state = 'shell';
+            enemy.velocity.x = 0;
+        } else if (enemy.state === 'shell') {
+            // Kick shell
+            enemy.state = 'moving_shell';
+            enemy.velocity.x = mario.facingRight ? GAME_CONFIG.SHELL_SPEED : -GAME_CONFIG.SHELL_SPEED;
+        } else if (enemy.state === 'moving_shell') {
+            // Stop shell
+            enemy.state = 'shell';
+            enemy.velocity.x = 0;
+        }
+    }
+}
+
+// ============================================
+// POWER-UP UPDATE
+// ============================================
+function updatePowerUps(deltaTime) {
+    gameState.powerUps.forEach((powerUp, index) => {
+        if (powerUp.collected) return;
+
+        // Emerge animation
+        if (powerUp.emerging) {
+            powerUp.mesh.position.y += deltaTime * 2;
+            if (powerUp.mesh.position.y >= powerUp.emergeTarget) {
+                powerUp.mesh.position.y = powerUp.emergeTarget;
+                powerUp.emerging = false;
+            }
+            return;
+        }
+
+        // Movement for mushroom
+        if (powerUp.type === 'mushroom') {
+            powerUp.velocity.y += GAME_CONFIG.GRAVITY * deltaTime;
+            powerUp.mesh.position.x += powerUp.velocity.x * deltaTime;
+            powerUp.mesh.position.y += powerUp.velocity.y * deltaTime;
+
+            // Ground collision
+            gameState.platforms.forEach(platform => {
+                if (!platform.mesh.visible) return;
+
+                const powerUpBox = new THREE.Box3().setFromObject(powerUp.mesh);
+                platform.box.setFromObject(platform.mesh);
+
+                if (powerUpBox.intersectsBox(platform.box)) {
+                    const powerUpCenter = new THREE.Vector3();
+                    powerUpBox.getCenter(powerUpCenter);
+
+                    const platformCenter = new THREE.Vector3();
+                    platform.box.getCenter(platformCenter);
+
+                    if (powerUpCenter.y > platformCenter.y) {
+                        powerUp.mesh.position.y = platform.box.max.y + 0.35;
+                        powerUp.velocity.y = 0;
+                    } else {
+                        powerUp.velocity.x *= -1;
+                    }
+                }
+            });
+
+            // Bounce off screen edges
+            if (powerUp.mesh.position.x < 0) {
+                powerUp.velocity.x = Math.abs(powerUp.velocity.x);
+            }
+
+            // Fall death
+            if (powerUp.mesh.position.y < -5) {
+                scene.remove(powerUp.mesh);
+                gameState.powerUps.splice(index, 1);
+                return;
+            }
+        }
+
+        // Fire flower animation
+        if (powerUp.type === 'fireflower') {
+            powerUp.animationTime = (powerUp.animationTime || 0) + deltaTime;
+            powerUp.mesh.rotation.y = powerUp.animationTime * 2;
+        }
+
+        // Collision with Mario
+        if (mario) {
+            const powerUpBox = new THREE.Box3().setFromObject(powerUp.mesh);
+            const marioHeight = gameState.marioState === 'small' ? 0.8 : 1.2;
+            const marioBox = new THREE.Box3(
+                new THREE.Vector3(mario.position.x - 0.25, mario.position.y - 0.1, mario.position.z - 0.2),
+                new THREE.Vector3(mario.position.x + 0.25, mario.position.y + marioHeight, mario.position.z + 0.2)
+            );
+
+            if (marioBox.intersectsBox(powerUpBox)) {
+                collectPowerUp(powerUp, index);
+            }
+        }
+    });
+}
+
+function collectPowerUp(powerUp, index) {
+    sounds.powerup();
+
+    if (powerUp.type === 'mushroom') {
+        if (gameState.marioState === 'small') {
+            gameState.marioState = 'big';
+            updateMarioAppearance();
+        }
+        addScore(1000);
+    } else if (powerUp.type === 'fireflower') {
+        gameState.marioState = 'fire';
+        updateMarioAppearance();
+        addScore(1000);
+    }
+
+    scene.remove(powerUp.mesh);
+    gameState.powerUps.splice(index, 1);
+}
+
+// ============================================
+// COIN UPDATE
+// ============================================
+function updateCoins(deltaTime) {
+    gameState.coins.forEach((coin, index) => {
+        if (coin.collected) return;
+
+        // Rotate coin
+        coin.mesh.rotation.y += coin.rotationSpeed * deltaTime;
+
+        // Collision with Mario
+        if (mario) {
+            const coinPos = coin.mesh.position;
+            const marioPos = mario.position;
+            const distance = Math.sqrt(
+                Math.pow(coinPos.x - marioPos.x, 2) +
+                Math.pow(coinPos.y - marioPos.y - 0.5, 2)
+            );
+
+            if (distance < 0.6) {
+                coin.collected = true;
+                scene.remove(coin.mesh);
+                sounds.coin();
+                addScore(200);
+                gameState.coinCount++;
+                updateHUD();
+            }
+        }
+    });
+}
+
+// ============================================
+// FIREBALL UPDATE
+// ============================================
+function updateFireballs(deltaTime) {
+    gameState.fireballs.forEach((fireball, index) => {
+        // Apply gravity
+        fireball.velocity.y += GAME_CONFIG.GRAVITY * 0.5 * deltaTime;
+
+        // Move fireball
+        fireball.mesh.position.x += fireball.velocity.x * deltaTime;
+        fireball.mesh.position.y += fireball.velocity.y * deltaTime;
+
+        // Rotate for visual effect
+        fireball.mesh.rotation.x += deltaTime * 15;
+        fireball.mesh.rotation.y += deltaTime * 15;
+
+        // Ground bounce
+        let hitGround = false;
+        gameState.platforms.forEach(platform => {
+            if (!platform.mesh.visible) return;
+
+            const fireballBox = new THREE.Box3().setFromObject(fireball.mesh);
+            platform.box.setFromObject(platform.mesh);
+
+            if (fireballBox.intersectsBox(platform.box)) {
+                const fireballCenter = new THREE.Vector3();
+                fireballBox.getCenter(fireballCenter);
+
+                const platformCenter = new THREE.Vector3();
+                platform.box.getCenter(platformCenter);
+
+                if (fireballCenter.y > platformCenter.y && fireball.velocity.y < 0) {
+                    fireball.mesh.position.y = platform.box.max.y + 0.15;
+                    fireball.velocity.y = 8; // Bounce
+                    fireball.bounces++;
+                    hitGround = true;
+                } else {
+                    // Hit wall
+                    fireball.bounces = fireball.maxBounces + 1;
+                }
+            }
+        });
+
+        // Check enemy collision
+        gameState.enemies.forEach(enemy => {
+            if (!enemy.alive) return;
+
+            const fireballBox = new THREE.Box3().setFromObject(fireball.mesh);
+            const enemyBox = new THREE.Box3().setFromObject(enemy.mesh);
+
+            if (fireballBox.intersectsBox(enemyBox)) {
+                // Kill enemy
+                enemy.alive = false;
+                enemy.deathTimer = 0.5;
+                enemy.mesh.rotation.x = Math.PI;
+                enemy.mesh.position.y += 0.5;
+                addScore(100);
+                sounds.stomp();
+
+                // Remove fireball
+                fireball.bounces = fireball.maxBounces + 1;
+            }
+        });
+
+        // Remove if too many bounces or off screen
+        if (fireball.bounces > fireball.maxBounces ||
+            fireball.mesh.position.y < -5 ||
+            fireball.mesh.position.x < camera.position.x - 20 ||
+            fireball.mesh.position.x > camera.position.x + 30) {
+            scene.remove(fireball.mesh);
+            gameState.fireballs.splice(index, 1);
+            createParticles(fireball.mesh.position, 0xff4500, 5);
+        }
+    });
+}
+
+// ============================================
+// PARTICLE UPDATE
+// ============================================
+function updateParticles(deltaTime) {
+    gameState.particles.forEach((particle, index) => {
+        particle.velocity.y += GAME_CONFIG.GRAVITY * deltaTime;
+
+        particle.mesh.position.x += particle.velocity.x * deltaTime;
+        particle.mesh.position.y += particle.velocity.y * deltaTime;
+        particle.mesh.position.z += particle.velocity.z * deltaTime;
+
+        particle.mesh.rotation.x += deltaTime * 5;
+        particle.mesh.rotation.y += deltaTime * 5;
+
+        particle.life -= deltaTime;
+
+        if (particle.isCoin) {
+            particle.mesh.rotation.y += deltaTime * 10;
+        }
+
+        if (particle.life <= 0) {
+            scene.remove(particle.mesh);
+            gameState.particles.splice(index, 1);
+        }
+    });
+}
+
+// ============================================
+// CAMERA UPDATE
+// ============================================
+function updateCamera() {
+    if (!mario) return;
+
+    // Follow Mario with smooth lerp
+    const targetX = mario.position.x + 5;
+    camera.position.x += (targetX - camera.position.x) * 0.1;
+
+    // Clamp camera to level bounds
+    camera.position.x = Math.max(7.5, Math.min(camera.position.x, GAME_CONFIG.LEVEL_WIDTH - 10));
+
+    camera.lookAt(camera.position.x, 3, 0);
+}
+
+// ============================================
+// FLAGPOLE CHECK
+// ============================================
+function checkFlagpole() {
+    if (!mario || !gameState.flagpole || gameState.flagpole.triggered) return;
+
+    const distance = Math.abs(mario.position.x - gameState.flagpole.position.x);
+
+    if (distance < 1 && mario.position.y > 0) {
+        gameState.flagpole.triggered = true;
+        levelComplete();
+    }
+}
+
+// ============================================
+// GAME STATE MANAGEMENT
+// ============================================
+function marioHit(forceDeath = false) {
+    if (gameState.isInvincible && !forceDeath) return;
+
+    if (gameState.marioState === 'small' || forceDeath) {
+        // Mario dies
+        sounds.death();
+        gameState.lives--;
+
+        if (gameState.lives <= 0) {
+            gameOver();
+        } else {
+            // Respawn
+            mario.position.set(3, 2, 0);
+            mario.velocity.set(0, 0, 0);
+            gameState.marioState = 'small';
+            updateMarioAppearance();
+            gameState.isInvincible = true;
+            gameState.invincibilityTimer = GAME_CONFIG.INVINCIBILITY_TIME;
+            updateHUD();
+        }
+    } else {
+        // Power down
+        gameState.marioState = 'small';
+        updateMarioAppearance();
+        gameState.isInvincible = true;
+        gameState.invincibilityTimer = GAME_CONFIG.INVINCIBILITY_TIME;
+    }
+}
+
+function addScore(points) {
+    gameState.score += points;
+    updateHUD();
+}
+
+function updateHUD() {
+    document.getElementById('score-display').textContent =
+        String(gameState.score).padStart(6, '0');
+    document.getElementById('coins-display').textContent =
+        'x' + String(gameState.coinCount).padStart(2, '0');
+    document.getElementById('lives-display').textContent =
+        'x' + gameState.lives;
+    document.getElementById('time-display').textContent =
+        Math.floor(gameState.time);
+}
+
+function gameOver() {
+    gameState.currentState = 'gameover';
+    showMenu('GAME OVER', 'Your Score: ' + gameState.score, 'PLAY AGAIN');
+}
+
+function levelComplete() {
+    gameState.currentState = 'levelcomplete';
+    sounds.levelcomplete();
+
+    // Add time bonus
+    const timeBonus = Math.floor(gameState.time) * 50;
+    gameState.score += timeBonus;
+
+    showMenu('LEVEL COMPLETE!', 'Score: ' + gameState.score + '\nTime Bonus: ' + timeBonus, 'PLAY AGAIN');
+}
+
+function showMenu(title, subtitle, buttonText) {
+    const overlay = document.getElementById('menu-overlay');
+    overlay.innerHTML = `
+        <div class="game-message">${title}</div>
+        <div class="score-display">${subtitle.replace('\n', '<br>')}</div>
+        <button class="menu-button" id="restart-button">${buttonText}</button>
+        <div class="controls-info">
+            CONTROLS:<br>
+            Arrow Keys / WASD - Move<br>
+            Space - Jump<br>
+            Ctrl - Fire (when powered up)
+        </div>
+    `;
+    overlay.classList.remove('hidden');
+
+    document.getElementById('restart-button').addEventListener('click', () => {
+        resetGame();
+        startGame();
+    });
+}
+
+function resetGame() {
+    // Reset game state
+    gameState.score = 0;
+    gameState.coinCount = 0;
+    gameState.lives = GAME_CONFIG.INITIAL_LIVES;
+    gameState.time = GAME_CONFIG.INITIAL_TIME;
+    gameState.marioState = 'small';
+    gameState.isInvincible = false;
+    gameState.currentState = 'menu';
+
+    // Clear arrays
+    gameState.fireballs.forEach(f => scene.remove(f.mesh));
+    gameState.fireballs = [];
+    gameState.particles.forEach(p => scene.remove(p.mesh));
+    gameState.particles = [];
+    gameState.powerUps.forEach(p => scene.remove(p.mesh));
+    gameState.powerUps = [];
+
+    // Remove old level objects
+    while(scene.children.length > 0) {
+        scene.remove(scene.children[0]);
+    }
+
+    // Reinitialize
+    initLights();
+    createMario();
+    createLevel();
+    updateMarioAppearance();
+    updateHUD();
+}
+
+function startGame() {
+    document.getElementById('menu-overlay').classList.add('hidden');
+    gameState.currentState = 'playing';
+    gameState.lastTime = performance.now();
+}
+
+// ============================================
+// INPUT HANDLING
+// ============================================
+function initInput() {
+    window.addEventListener('keydown', (e) => {
+        switch(e.code) {
+            case 'ArrowLeft':
+            case 'KeyA':
+                gameState.keys.left = true;
+                break;
+            case 'ArrowRight':
+            case 'KeyD':
+                gameState.keys.right = true;
+                break;
+            case 'ArrowUp':
+            case 'KeyW':
+                gameState.keys.up = true;
+                break;
+            case 'ArrowDown':
+            case 'KeyS':
+                gameState.keys.down = true;
+                break;
+            case 'Space':
+                gameState.keys.jump = true;
+                e.preventDefault();
+                break;
+            case 'ControlLeft':
+            case 'ControlRight':
+                if (gameState.marioState === 'fire' && gameState.currentState === 'playing') {
+                    createFireball();
+                }
+                gameState.keys.fire = true;
+                break;
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        switch(e.code) {
+            case 'ArrowLeft':
+            case 'KeyA':
+                gameState.keys.left = false;
+                break;
+            case 'ArrowRight':
+            case 'KeyD':
+                gameState.keys.right = false;
+                break;
+            case 'ArrowUp':
+            case 'KeyW':
+                gameState.keys.up = false;
+                break;
+            case 'ArrowDown':
+            case 'KeyS':
+                gameState.keys.down = false;
+                break;
+            case 'Space':
+                gameState.keys.jump = false;
+                break;
+            case 'ControlLeft':
+            case 'ControlRight':
+                gameState.keys.fire = false;
+                break;
+        }
+    });
+}
+
+// ============================================
+// GAME TIMER
+// ============================================
+function updateTimer(deltaTime) {
+    if (gameState.currentState !== 'playing') return;
+
+    gameState.timeCounter += deltaTime;
+
+    if (gameState.timeCounter >= 1) {
+        gameState.timeCounter = 0;
+        gameState.time--;
+        updateHUD();
+
+        if (gameState.time <= 0) {
+            marioHit(true); // Time up = death
+        }
+    }
+}
+
+// ============================================
+// MAIN GAME LOOP
+// ============================================
+function animate() {
+    requestAnimationFrame(animate);
+
+    const currentTime = performance.now();
+    const deltaTime = Math.min((currentTime - gameState.lastTime) / 1000, 0.1);
+    gameState.lastTime = currentTime;
+
+    if (gameState.currentState === 'playing') {
+        // Update game systems
+        updatePhysics(deltaTime);
+        updateEnemies(deltaTime);
+        updatePowerUps(deltaTime);
+        updateCoins(deltaTime);
+        updateFireballs(deltaTime);
+        updateParticles(deltaTime);
+        updateCamera();
+        updateTimer(deltaTime);
+        checkFlagpole();
+
+        // Animate Mario
+        animateMario(deltaTime);
+
+        // Animate question blocks (bobbing)
+        gameState.questionBlocks.forEach(block => {
+            if (!block.hit) {
+                block.mesh.position.y = block.originalY + Math.sin(currentTime * 0.003) * 0.05;
+            }
+        });
+    }
+
+    // Render
+    renderer.render(scene, camera);
+}
+
+// ============================================
+// INITIALIZATION
+// ============================================
+function init() {
+    // Hide loading screen
+    setTimeout(() => {
+        document.getElementById('loading-screen').classList.add('hidden');
+    }, 500);
+
+    // Initialize systems
+    initThreeJS();
+    initSounds();
+    initInput();
+
+    // Create game world
+    createMario();
+    createLevel();
+
+    // Setup HUD
+    updateHUD();
+
+    // Setup start button
+    document.getElementById('start-button').addEventListener('click', () => {
+        // Resume audio context on user interaction
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+        startGame();
+    });
+
+    // Start game loop
+    gameState.lastTime = performance.now();
+    animate();
+}
+
+// Start the game when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
+    </script>
+</body>
+</html>

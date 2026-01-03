@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Mario 3D - Three.js</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #5C94FC; font-family: 'Arial', sans-serif; user-select: none; }
+        #game-container { position: relative; width: 100vw; height: 100vh; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
+        .hud-top { padding: 20px; display: flex; justify-content: space-between; color: white; text-shadow: 2px 2px 0 #000; font-size: 24px; font-weight: bold; }
+        #start-screen, #game-over-screen, #level-complete-screen { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.7); display: flex; flex-direction: column; 
+            align-items: center; justify-content: center; color: white; pointer-events: auto;
+        }
+        h1 { font-size: 48px; color: #ffce00; text-shadow: 4px 4px 0 #d32f2f; margin-bottom: 20px; }
+        button { 
+            padding: 15px 30px; font-size: 24px; cursor: pointer; 
+            background: #ffce00; border: 4px solid #fff; border-radius: 10px; 
+            color: #d32f2f; font-weight: bold; transition: transform 0.1s;
+        }
+        button:hover { transform: scale(1.1); }
+        .hidden { display: none !important; }
+        .controls-hint { margin-top: 20px; font-size: 16px; opacity: 0.8; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div>MARIO <br> <span id="score">000000</span></div>
+            <div>COINS <br> <span id="coins">x00</span></div>
+            <div>WORLD <br> 1-1</div>
+            <div>TIME <br> <span id="time">300</span></div>
+        </div>
+    </div>
+
+    <div id="start-screen">
+        <h1>SUPER MARIO 3D</h1>
+        <button id="start-btn">START GAME</button>
+        <div class="controls-hint">Arrows/WASD to Move &bull; Space to Jump &bull; Ctrl to Run/Shoot</div>
+    </div>
+
+    <div id="game-over-screen" class="hidden">
+        <h1>GAME OVER</h1>
+        <button id="restart-btn">TRY AGAIN</button>
+    </div>
+
+    <div id="level-complete-screen" class="hidden">
+        <h1>COURSE CLEAR!</h1>
+        <div style="font-size: 24px; margin-bottom: 20px;">Score: <span id="final-score">0</span></div>
+        <button id="next-level-btn">PLAY AGAIN</button>
+    </div>
+</div>
+
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+/**
+ * ------------------------------------------------------------------
+ * AUDIO SYSTEM (Synthesizer)
+ * Generates sounds on the fly to avoid external asset dependencies.
+ * ------------------------------------------------------------------
+ */
+class SoundManager {
+    constructor() {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = 0.3;
+        this.masterGain.connect(this.ctx.destination);
+        this.enabled = false;
+    }
+
+    resume() {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        this.enabled = true;
+    }
+
+    playTone(freq, type, duration, slide = 0) {
+        if (!this.enabled) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        if (slide !== 0) {
+            osc.frequency.linearRampToValueAtTime(freq + slide, this.ctx.currentTime + duration);
+        }
+        gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+    }
+
+    playJump() { this.playTone(300, 'square', 0.2, 300); }
+    playCoin() { 
+        this.playTone(900, 'sine', 0.1); 
+        setTimeout(() => this.playTone(1200, 'sine', 0.2), 100); 
+    }
+    playStomp() { this.playTone(150, 'sawtooth', 0.1, -50); }
+    playBump() { this.playTone(100, 'square', 0.1, -20); }
+    playPowerUp() {
+        let notes = [440, 554, 659, 880, 1108, 1318];
+        notes.forEach((n, i) => setTimeout(() => this.playTone(n, 'sine', 0.1), i * 100));
+    }
+    playDie() {
+        this.playTone(400, 'sawtooth', 0.5, -200);
+        setTimeout(() => this.playTone(200, 'sawtooth', 0.5, -100), 500);
+    }
+    playWin() {
+        [523, 659, 783, 1046, 783, 1046].forEach((f, i) => {
+            setTimeout(() => this.playTone(f, 'square', 0.15), i * 150);
+        });
+    }
+}
+
+/**
+ * ------------------------------------------------------------------
+ * ASSET GENERATOR
+ * Procedurally creates textures for the game world.
+ * ------------------------------------------------------------------
+ */
+class TextureGenerator {
+    static createBrickTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#b73818'; ctx.fillRect(0,0,64,64);
+        ctx.fillStyle = '#d65a3b'; ctx.fillRect(0,0,62,30); ctx.fillRect(0,32,30,30); ctx.fillRect(32,32,30,30);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.magFilter = THREE.NearestFilter;
+        return tex;
+    }
+    static createGroundTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#784627'; ctx.fillRect(0,0,64,64); // brown
+        ctx.fillStyle = '#9c623e'; 
+        for(let i=0; i<10; i++) ctx.fillRect(Math.random()*60, Math.random()*60, 4, 4);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.magFilter = THREE.NearestFilter;
+        return tex;
+    }
+    static createQuestionTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64; canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#e89e17'; ctx.fillRect(0,0,64,64);
+        ctx.fillStyle = '#000'; ctx.fillRect(2,2,60,60); // border
+        ctx.fillStyle = '#e89e17'; ctx.fillRect(4,4,56,56);
+        ctx.fillStyle = '#000'; ctx.font = 'bold 48px monospace'; ctx.fillText('?', 18, 50);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.magFilter = THREE.NearestFilter;
+        return tex;
+    }
+}
+
+/**
+ * ------------------------------------------------------------------
+ * GAME ENGINE & PHYSICS
+ * ------------------------------------------------------------------
+ */
+const TILE_SIZE = 1;
+
+class Input {
+    constructor() {
+        this.keys = {};
+        window.addEventListener('keydown', (e) => this.keys[e.code] = true);
+        window.addEventListener('keyup', (e) => this.keys[e.code] = false);
+    }
+    isDown(code) { return !!this.keys[code]; }
+}
+
+class AABB {
+    constructor(pos, size) {
+        this.pos = pos; // THREE.Vector3 (bottom-center for entities, usually)
+        this.size = size; // THREE.Vector3
+    }
+    
+    // Check intersection
+    intersects(other) {
+        return (this.pos.x - this.size.x/2 < other.pos.x + other.size.x/2 &&
+                this.pos.x + this.size.x/2 > other.pos.x - other.size.x/2 &&
+                this.pos.y < other.pos.y + other.size.y &&
+                this.pos.y + this.size.y > other.pos.y &&
+                this.pos.z - this.size.z/2 < other.pos.z + other.size.z/2 &&
+                this.pos.z + this.size.z/2 > other.pos.z - other.size.z/2);
+    }
+}
+
+class Entity {
+    constructor(game, x, y, width, height, color) {
+        this.game = game;
+        this.pos = new THREE.Vector3(x, y, 0);
+        this.vel = new THREE.Vector3(0, 0, 0);
+        this.size = new THREE.Vector3(width, height, 1);
+        this.isDead = false;
+        this.onGround = false;
+
+        // Visuals
+        this.mesh = new THREE.Group();
+        // Debug box / base mesh
+        const geom = new THREE.BoxGeometry(width, height, 1);
+        const mat = new THREE.MeshLambertMaterial({ color: color });
+        this.mainMesh = new THREE.Mesh(geom, mat);
+        this.mainMesh.position.y = height/2; // Origin is bottom-center
+        this.mesh.add(this.mainMesh);
+        
+        this.game.scene.add(this.mesh);
+        this.updateVisuals();
+    }
+
+    update(dt) {
+        if(this.isDead) return;
+        this.applyGravity(dt);
+        this.move(dt);
+        this.updateVisuals();
+        
+        // Kill check (falling)
+        if (this.pos.y < -5) this.die();
+    }
+
+    applyGravity(dt) {
+        this.vel.y -= 30 * dt; 
+        if (this.vel.y < -20) this.vel.y = -20; // Terminal velocity
+    }
+
+    move(dt) {
+        // X Axis
+        this.pos.x += this.vel.x * dt;
+        let collisionX = this.checkCollisions(true);
+        if (collisionX) {
+            this.onCollideX(collisionX);
+            this.pos.x -= this.vel.x * dt; // Revert
+            this.vel.x = 0;
+        }
+
+        // Y Axis
+        this.pos.y += this.vel.y * dt;
+        this.onGround = false;
+        let collisionY = this.checkCollisions(false);
+        if (collisionY) {
+            this.onCollideY(collisionY);
+            this.pos.y -= this.vel.y * dt; // Revert
+            this.vel.y = 0;
+        }
+    }
+
+    checkCollisions(isX) {
+        // Simple AABB against map blocks
+        // In a full game, we'd use spatial hashing. Here we check the "nearby" blocks from the level array.
+        const margin = 0.05;
+        const myBox = new AABB(this.pos, this.size);
+        
+        // Optimisation: only check blocks within range
+        const startX = Math.floor(this.pos.x - 2);
+        const endX = Math.floor(this.pos.x + 2);
+        const startY = Math.floor(this.pos.y - 2);
+        const endY = Math.floor(this.pos.y + 4);
+
+        for(let x=startX; x<=endX; x++) {
+            for(let y=startY; y<=endY; y++) {
+                const block = this.game.level.getBlock(x, y);
+                if (block && block.solid) {
+                    // Block AABB (blocks are 1x1, origin bottom-left usually, but we'll normalize to bottom-center for physics simplicity)
+                    // Level coords are integer bottom-left.
+                    // Physics object expects center-x, bottom-y.
+                    const blockPos = new THREE.Vector3(x + 0.5, y, 0);
+                    const blockBox = new AABB(blockPos, new THREE.Vector3(1, 1, 1));
+                    if (myBox.intersects(blockBox)) return block;
+                }
+            }
+        }
+        return null;
+    }
+
+    onCollideX(block) {}
+    onCollideY(block) {
+        if (this.vel.y < 0) this.onGround = true;
+    }
+    
+    updateVisuals() {
+        this.mesh.position.copy(this.pos);
+    }
+
+    die() {
+        this.isDead = true;
+        this.game.scene.remove(this.mesh);
+    }
+}
+
+/**
+ * ------------------------------------------------------------------
+ * PLAYER (MARIO)
+ * ------------------------------------------------------------------
+ */
+class Mario extends Entity {
+    constructor(game, x, y) {
+        super(game, x, y, 0.8, 1.0, 0xff0000);
+        this.speed = 6;
+        this.jumpForce = 14;
+        this.isBig = false;
+        
+        // Custom Model
+        this.mesh.remove(this.mainMesh);
+        this.createModel();
+        
+        this.facingRight = true;
+        this.invulnerable = 0;
+    }
+
+    createModel() {
+        const matRed = new THREE.MeshLambertMaterial({ color: 0xe52521 });
+        const matSkin = new THREE.MeshLambertMaterial({ color: 0xffcc99 });
+        const matBlue = new THREE.MeshLambertMaterial({ color: 0x0000ff });
+        const matBrown = new THREE.MeshLambertMaterial({ color: 0x553311 });
+
+        this.modelGroup = new THREE.Group();
+
+        // Legs
+        this.legL = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.4, 0.3), matBlue);
+        this.legL.position.set(-0.2, 0.2, 0);
+        this.legR = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.4, 0.3), matBlue);
+        this.legR.position.set(0.2, 0.2, 0);
+        
+        // Body
+        this.body = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.4), matRed);
+        this.body.position.set(0, 0.65, 0);
+        
+        // Head
+        this.head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), matSkin);
+        this.head.position.set(0, 1.15, 0);
+        // Hat
+        const hat = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.15, 0.52), matRed);
+        hat.position.set(0, 0.25, 0);
+        this.head.add(hat);
+        const hatBrim = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.2), matRed);
+        hatBrim.position.set(0, 0.2, 0.2);
+        this.head.add(hatBrim);
+
+        // Arms
+        this.armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 0.2), matRed);
+        this.armL.position.set(-0.4, 0.7, 0);
+        this.armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.4, 0.2), matRed);
+        this.armR.position.set(0.4, 0.7, 0);
+
+        this.modelGroup.add(this.legL, this.legR, this.body, this.head, this.armL, this.armR);
+        this.mesh.add(this.modelGroup);
+    }
+
+    update(dt) {
+        if (this.isDead) return;
+
+        // Input
+        const left = this.game.input.isDown('ArrowLeft') || this.game.input.isDown('KeyA');
+        const right = this.game.input.isDown('ArrowRight') || this.game.input.isDown('KeyD');
+        const jump = this.game.input.isDown('Space') || this.game.input.isDown('ArrowUp') || this.game.input.isDown('KeyW');
+
+        if (left) {
+            this.vel.x = -this.speed;
+            this.facingRight = false;
+        } else if (right) {
+            this.vel.x = this.speed;
+            this.facingRight = true;
+        } else {
+            this.vel.x = 0;
+        }
+
+        if (jump && this.onGround) {
+            this.vel.y = this.jumpForce;
+            this.onGround = false;
+            this.game.sound.playJump();
+        }
+
+        // Animation
+        const time = Date.now() * 0.01;
+        if (!this.onGround) {
+            // Jump pose
+            this.legL.rotation.x = -0.5;
+            this.legR.rotation.x = 0.5;
+            this.armL.rotation.z = 0.5;
+            this.armR.rotation.z = -0.5;
+        } else if (Math.abs(this.vel.x) > 0.1) {
+            // Run cycle
+            this.legL.rotation.x = Math.sin(time * 2) * 0.8;
+            this.legR.rotation.x = Math.sin(time * 2 + Math.PI) * 0.8;
+            this.armL.rotation.x = Math.sin(time * 2 + Math.PI) * 0.8;
+            this.armR.rotation.x = Math.sin(time * 2) * 0.8;
+        } else {
+            // Idle
+            this.legL.rotation.x = 0;
+            this.legR.rotation.x = 0;
+            this.armL.rotation.x = 0;
+            this.armR.rotation.x = 0;
+        }
+
+        this.modelGroup.rotation.y = this.facingRight ? Math.PI / 2 : -Math.PI / 2;
+
+        if (this.invulnerable > 0) {
+            this.invulnerable -= dt;
+            this.mesh.visible = Math.floor(Date.now() / 50) % 2 === 0;
+        } else {
+            this.mesh.visible = true;
+        }
+
+        super.update(dt);
+        
+        // Entity interactions (Enemies, Coins, Powerups)
+        this.checkEntityCollisions();
+    }
+
+    onCollideY(block) {
+        super.onCollideY(block);
+        if (this.vel.y > 0) { // Hitting block from below
+            this.game.level.hitBlock(block);
+        }
+    }
+
+    checkEntityCollisions() {
+        const myBox = new AABB(this.pos, this.size);
+        
+        // Enemies
+        this.game.enemies.forEach(enemy => {
+            if (enemy.isDead) return;
+            const enemyBox = new AABB(enemy.pos, enemy.size);
+            if (myBox.intersects(enemyBox)) {
+                // Stomp logic: must be falling and above enemy
+                if (this.vel.y < 0 && this.pos.y > enemy.pos.y + enemy.size.y * 0.5) {
+                    enemy.die();
+                    this.vel.y = 8; // Bounce
+                    this.game.sound.playStomp();
+                    this.game.addScore(100);
+                } else if (this.invulnerable <= 0) {
+                    this.takeDamage();
+                }
+            }
+        });
+
+        // Coins/Items (Simplified: Coins are part of blocks usually, but let's say floating coins)
+        // Flagpole
+        if (this.pos.x > this.game.level.width - 4) {
+             this.game.win();
+        }
+    }
+
+    takeDamage() {
+        if (this.isBig) {
+            this.isBig = false;
+            this.invulnerable = 2;
+            this.game.sound.playBump(); // Power down sound
+            // Scale visuals down
+            this.modelGroup.scale.set(1,1,1);
+        } else {
+            this.die();
+        }
+    }
+
+    grow() {
+        if (!this.isBig) {
+            this.isBig = true;
+            this.game.sound.playPowerUp();
+            this.modelGroup.scale.set(1.5, 1.5, 1.5);
+        }
+    }
+
+    die() {
+        if(this.isDead) return;
+        super.die();
+        this.game.sound.playDie();
+        this.game.gameOver();
+    }
+}
+
+/**
+ * ------------------------------------------------------------------
+ * ENEMIES (Goomba)
+ * ------------------------------------------------------------------
+ */
+class Goomba extends Entity {
+    constructor(game, x, y) {
+        super(game, x, y, 0.8, 0.8, 0x8B4513);
+        this.speed = 2;
+        this.vel.x = -this.speed;
+        
+        // Custom Model
+        this.mesh.remove(this.mainMesh);
+        const geom = new THREE.SphereGeometry(0.4, 16, 16);
+        const mat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+        this.body = new THREE.Mesh(geom, mat);
+        this.body.position.y = 0.4;
+        
+        // Feet
+        const footGeom = new THREE.SphereGeometry(0.15, 8, 8);
+        const footMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
+        this.footL = new THREE.Mesh(footGeom, footMat);
+        this.footL.position.set(-0.2, 0.15, 0.2);
+        this.footR = new THREE.Mesh(footGeom, footMat);
+        this.footR.position.set(0.2, 0.15, 0.2);
+
+        this.mesh.add(this.body, this.footL, this.footR);
+    }
+
+    update(dt) {
+        if(this.isDead) return;
+        super.update(dt);
+        
+        // Walk animation
+        const time = Date.now() * 0.01;
+        this.footL.position.x = -0.2 + Math.sin(time * 5) * 0.1;
+        this.footR.position.x = 0.2 + Math.cos(time * 5) * 0.1;
+
+        if (Math.abs(this.vel.x) < 0.1) {
+             // Turned around by wall
+             // Actually Entity code zeros velocity on collision. 
+             // We need to detect "zero velocity" and flip.
+             // But simpler: just check direction vs wall manually or flip if vel.x became 0
+        }
+    }
+
+    onCollideX(block) {
+        this.vel.x *= -1; // Flip direction
+    }
+
+    die() {
+        this.isDead = true;
+        this.body.scale.y = 0.2; // Squish
+        this.body.position.y = 0.1;
+        setTimeout(() => this.game.scene.remove(this.mesh), 500);
+    }
+}
+
+/**
+ * ------------------------------------------------------------------
+ * LEVEL MANAGEMENT
+ * ------------------------------------------------------------------
+ */
+class Level {
+    constructor(game) {
+        this.game = game;
+        this.blocks = {};
+        this.width = 0;
+        
+        this.materials = {
+            ground: new THREE.MeshLambertMaterial({ map: TextureGenerator.createGroundTexture() }),
+            brick: new THREE.MeshLambertMaterial({ map: TextureGenerator.createBrickTexture() }),
+            question: new THREE.MeshLambertMaterial({ map: TextureGenerator.createQuestionTexture() }),
+            empty: new THREE.MeshLambertMaterial({ color: 0x664433 }),
+            pipe: new THREE.MeshLambertMaterial({ color: 0x00aa00 }),
+            pole: new THREE.MeshLambertMaterial({ color: 0xdddddd })
+        };
+    }
+
+    generate() {
+        // Simple map generation string
+        // G: Ground, B: Brick, ?: Question, P: Pipe, ' ': Air
+        const map = [
+            "                                                                                                   F ",
+            "                                                                                                   F ",
+            "                                                                                                   F ",
+            "                                   ?                                                               F ",
+            "                                                                                                   F ",
+            "                     ?   ?                                       B?B?B                             B ",
+            "                   B?B?B?B           P                P                       P    P               B ",
+            "                                     P                P                       P    P               B ",
+            "G                                    P                P                       P    P               G ",
+            "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG    GGGGGGGGGGGGGG    GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG" 
+        ];
+
+        // Process map from bottom up (visually) but array is top-down
+        // Let's render coordinate system: y=0 is bottom row.
+        const height = map.length;
+        this.width = map[0].length;
+
+        for (let y = 0; y < height; y++) {
+            const row = map[height - 1 - y];
+            for (let x = 0; x < row.length; x++) {
+                const char = row[x];
+                if (char !== ' ') {
+                    this.createBlock(x, y, char);
+                }
+            }
+        }
+        
+        // Borders
+        for(let y=-2; y<20; y++) this.createBlock(-1, y, 'G');
+        for(let y=-2; y<20; y++) this.createBlock(this.width, y, 'G');
+    }
+
+    createBlock(x, y, type) {
+        let mat = this.materials.ground;
+        let isSolid = true;
+        let content = null;
+
+        if (type === 'G') mat = this.materials.ground;
+        if (type === 'B') { mat = this.materials.brick; content = 'brick'; }
+        if (type === '?') { mat = this.materials.question; content = 'coin'; }
+        if (type === 'P') mat = this.materials.pipe;
+        if (type === 'F') { mat = this.materials.pole; isSolid = false; } // Flagpole part
+
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+        mesh.position.set(x + 0.5, y + 0.5, 0);
+        this.game.scene.add(mesh);
+
+        // Store block data
+        if (!this.blocks[x]) this.blocks[x] = {};
+        this.blocks[x][y] = { mesh, solid: isSolid, type, content, x, y };
+
+        // Flag
+        if (type === 'F' && y === 1) { // Add actual flag mesh
+            const flag = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.5, 0.1), new THREE.MeshLambertMaterial({color:0x00ff00}));
+            flag.position.set(0.5, 0, 0);
+            mesh.add(flag);
+        }
+    }
+
+    getBlock(x, y) {
+        if (this.blocks[x] && this.blocks[x][y]) return this.blocks[x][y];
+        return null;
+    }
+
+    hitBlock(block) {
+        if (block.content === 'coin') {
+            this.game.sound.playCoin();
+            this.game.addScore(200);
+            this.game.addCoin();
+            block.content = null;
+            block.mesh.material = this.materials.empty;
+            
+            // Visual pop
+            const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16), new THREE.MeshLambertMaterial({color: 0xffff00}));
+            coin.rotation.x = Math.PI/2;
+            coin.position.set(block.x + 0.5, block.y + 1.5, 0);
+            this.game.scene.add(coin);
+            
+            // Animate coin up and remove
+            let dy = 0.2;
+            const anim = setInterval(() => {
+                coin.position.y += dy;
+                coin.rotation.z += 0.2;
+                dy -= 0.02;
+                if (dy < -0.2) {
+                    clearInterval(anim);
+                    this.game.scene.remove(coin);
+                }
+            }, 16);
+
+        } else if (block.content === 'brick') {
+             if (this.game.player.isBig) {
+                 this.game.sound.playBump(); // Break sound (placeholder)
+                 this.game.scene.remove(block.mesh);
+                 delete this.blocks[block.x][block.y];
+                 // Add particles
+             } else {
+                 this.game.sound.playBump();
+                 // Bump animation
+                 block.mesh.position.y += 0.2;
+                 setTimeout(() => block.mesh.position.y -= 0.2, 100);
+             }
+        }
+    }
+}
+
+/**
+ * ------------------------------------------------------------------
+ * MAIN GAME CLASS
+ * ------------------------------------------------------------------
+ */
+class Game {
+    constructor() {
+        this.container = document.getElementById('game-container');
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x5C94FC);
+
+        // Camera
+        const aspect = this.container.clientWidth / this.container.clientHeight;
+        const d = 10;
+        this.camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+        this.camera.position.set(0, 5, 20);
+        this.camera.lookAt(0, 5, 0);
+
+        // Renderer
+        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+        this.renderer.shadowMap.enabled = true;
+        this.container.appendChild(this.renderer.domElement);
+
+        // Lights
+        const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+        this.scene.add(ambient);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        this.scene.add(dirLight);
+
+        // Systems
+        this.input = new Input();
+        this.sound = new SoundManager();
+        this.level = new Level(this);
+        
+        this.enemies = [];
+        this.state = 'start'; // start, playing, gameover, win
+        
+        this.score = 0;
+        this.coins = 0;
+        this.time = 300;
+
+        // UI
+        this.elScore = document.getElementById('score');
+        this.elCoins = document.getElementById('coins');
+        this.elTime = document.getElementById('time');
+        
+        // Listeners
+        document.getElementById('start-btn').addEventListener('click', () => this.start());
+        document.getElementById('restart-btn').addEventListener('click', () => this.start());
+        document.getElementById('next-level-btn').addEventListener('click', () => this.start());
+        window.addEventListener('resize', () => this.onResize());
+
+        this.lastTime = 0;
+        this.animate = this.animate.bind(this);
+        requestAnimationFrame(this.animate);
+    }
+
+    start() {
+        this.sound.resume();
+        // Reset Scene
+        while(this.scene.children.length > 0){ 
+            this.scene.remove(this.scene.children[0]); 
+        }
+        // Re-add lights
+        const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+        this.scene.add(ambient);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        this.scene.add(dirLight);
+
+        // Reset Data
+        this.level = new Level(this);
+        this.level.generate();
+        this.player = new Mario(this, 2, 2);
+        this.enemies = [
+            new Goomba(this, 12, 2),
+            new Goomba(this, 25, 2),
+            new Goomba(this, 40, 2),
+            new Goomba(this, 55, 2)
+        ];
+        
+        this.score = 0;
+        this.coins = 0;
+        this.time = 300;
+        this.updateHUD();
+
+        this.state = 'playing';
+        
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('game-over-screen').classList.add('hidden');
+        document.getElementById('level-complete-screen').classList.add('hidden');
+    }
+
+    update(dt) {
+        if (this.state !== 'playing') return;
+
+        // Time
+        this.time -= dt;
+        if (this.time <= 0) this.player.die();
+
+        // Update Entities
+        this.player.update(dt);
+        this.enemies.forEach(e => e.update(dt));
+
+        // Camera Follow
+        const targetX = Math.max(0, Math.min(this.player.pos.x, this.level.width - 15));
+        this.camera.position.x += (targetX - this.camera.position.x) * 0.1;
+        this.camera.lookAt(this.camera.position.x, 5, 0);
+
+        this.updateHUD();
+    }
+
+    updateHUD() {
+        this.elScore.innerText = this.score.toString().padStart(6, '0');
+        this.elCoins.innerText = 'x' + this.coins.toString().padStart(2, '0');
+        this.elTime.innerText = Math.floor(this.time);
+    }
+
+    addScore(points) { this.score += points; }
+    addCoin() { this.coins++; }
+
+    gameOver() {
+        this.state = 'gameover';
+        document.getElementById('game-over-screen').classList.remove('hidden');
+    }
+
+    win() {
+        if (this.state === 'win') return;
+        this.state = 'win';
+        this.sound.playWin();
+        document.getElementById('final-score').innerText = this.score + Math.floor(this.time) * 10;
+        document.getElementById('level-complete-screen').classList.remove('hidden');
+    }
+
+    onResize() {
+        const aspect = this.container.clientWidth / this.container.clientHeight;
+        const d = 10;
+        this.camera.left = -d * aspect;
+        this.camera.right = d * aspect;
+        this.camera.top = d;
+        this.camera.bottom = -d;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+    }
+
+    animate(time) {
+        requestAnimationFrame(this.animate);
+        const dt = Math.min((time - this.lastTime) / 1000, 0.1);
+        this.lastTime = time;
+        
+        this.update(dt);
+        this.renderer.render(this.scene, this.camera);
+    }
+}
+
+// Init
+window.onload = () => {
+    const game = new Game();
+};
+
+</script>
+</body>
+</html>
